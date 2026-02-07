@@ -41,112 +41,254 @@ const HTML_PAGE = `<!doctype html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>TWMD Web GUI</title>
+  <title>TWMD GUI</title>
   <style>
-    :root { color-scheme: dark; }
-    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background: #0b1020; color: #eef2ff; }
-    .wrap { max-width: 1080px; margin: 0 auto; padding: 24px; }
-    h1 { margin: 0 0 16px; font-size: 24px; }
-    .grid { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
-    .card { background: #111933; border: 1px solid #2b3a6b; border-radius: 12px; padding: 16px; }
-    .card h2 { margin: 0 0 10px; font-size: 16px; }
-    .row { display: grid; gap: 8px; margin-bottom: 10px; }
-    .row.two { grid-template-columns: 1fr 1fr; }
-    label { font-size: 12px; color: #b6c2ff; }
-    input, textarea, button { border-radius: 8px; border: 1px solid #3d4d86; background: #0f1730; color: #eef2ff; }
-    input, textarea { padding: 8px; font-size: 13px; }
-    textarea { width: 100%; min-height: 110px; resize: vertical; }
-    button { cursor: pointer; padding: 8px 12px; font-size: 13px; }
-    button.primary { background: #3856ff; border-color: #4f69ff; }
-    button.warn { background: #b63838; border-color: #d14e4e; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .log { margin-top: 16px; background: #080d1a; border: 1px solid #2b3a6b; border-radius: 10px; padding: 10px; }
-    pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.35; max-height: 420px; overflow: auto; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .status { font-size: 12px; color: #b6c2ff; margin: 10px 0 0; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f7f7f8;
+      color: #1f2328;
+    }
+
+    .wrap {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 20px 16px 28px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .desc {
+      margin: 6px 0 16px;
+      font-size: 13px;
+      color: #57606a;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .row {
+      margin-bottom: 10px;
+    }
+
+    .grid2 {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 6px;
+      color: #57606a;
+    }
+
+    input,
+    textarea,
+    button {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      font-size: 13px;
+      padding: 8px 10px;
+      background: #fff;
+      color: #1f2328;
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .actions button {
+      width: auto;
+      min-width: 96px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: #1f6feb;
+      border-color: #1f6feb;
+      color: #fff;
+    }
+
+    button.warn {
+      background: #cf222e;
+      border-color: #cf222e;
+      color: #fff;
+    }
+
+    details {
+      margin-top: 6px;
+    }
+
+    details summary {
+      cursor: pointer;
+      font-size: 13px;
+      color: #0969da;
+      margin-bottom: 10px;
+      user-select: none;
+    }
+
+    .log {
+      margin-top: 12px;
+      border: 1px solid #d0d7de;
+      border-radius: 10px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .log-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: #57606a;
+    }
+
+    .log-head button {
+      width: auto;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    pre {
+      margin: 0;
+      background: #f6f8fa;
+      border: 1px solid #d8dee4;
+      border-radius: 8px;
+      padding: 8px;
+      min-height: 160px;
+      max-height: 360px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.4;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .status {
+      margin: 8px 0 0;
+      font-size: 12px;
+      color: #57606a;
+    }
+
+    @media (max-width: 760px) {
+      .grid2 {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>TWMD Web GUI (M3 最小版)</h1>
-    <div class="grid">
-      <section class="card">
-        <h2>登录 / Cookie</h2>
-        <div class="row">
-          <label for="cookieText">Cookie 文本（推荐粘贴）</label>
-          <textarea id="cookieText" placeholder="粘贴浏览器导出的 cookie 文本"></textarea>
-        </div>
-        <div class="row">
-          <label for="cookieFilePath">或 Cookie 文件路径</label>
-          <input id="cookieFilePath" type="text" placeholder="例如 /Users/you/cookies.txt" />
-        </div>
-        <div class="row">
-          <label><input id="looseCookie" type="checkbox" /> 关闭严格 cookie 校验（--loose-cookie）</label>
-        </div>
-        <div class="actions">
-          <button class="primary" id="btnLogin">保存登录</button>
-          <button id="btnWhoami">检查登录</button>
-          <button id="btnLogout">清理登录</button>
-        </div>
-      </section>
+    <h1>TWMD Web GUI</h1>
+    <p class="desc">先登录 cookie，再填写用户并开始下载。</p>
 
-      <section class="card">
-        <h2>下载任务</h2>
-        <div class="row">
-          <label for="users">用户（逗号/空格/换行分隔）</label>
-          <textarea id="users" placeholder="nasa\nSpaceX"></textarea>
-        </div>
+    <section class="card">
+      <h2>1) 登录</h2>
+      <div class="row">
+        <label for="cookieText">Cookie 文本（推荐）</label>
+        <textarea id="cookieText" placeholder="粘贴 cookie 文本"></textarea>
+      </div>
+      <div class="row">
+        <label for="cookieFilePath">或 Cookie 文件路径</label>
+        <input id="cookieFilePath" type="text" placeholder="例如 /Users/you/cookies.txt" />
+      </div>
+      <div class="row">
+        <label><input id="looseCookie" type="checkbox" style="width:auto;margin-right:6px;" />关闭严格校验</label>
+      </div>
+      <div class="actions">
+        <button class="primary" id="btnLogin">保存登录</button>
+        <button id="btnWhoami">检查登录</button>
+        <button id="btnLogout">退出登录</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2) 下载</h2>
+      <div class="row">
+        <label for="users">用户（逗号/空格/换行）</label>
+        <textarea id="users" placeholder="nasa"></textarea>
+      </div>
+      <div class="grid2">
         <div class="row">
           <label for="outDir">输出目录</label>
           <input id="outDir" type="text" value="./downloads" />
         </div>
-        <div class="row two">
-          <div>
-            <label for="kinds">媒体类型</label>
-            <input id="kinds" type="text" value="image,video,gif" />
-          </div>
-          <div>
-            <label for="maxTweets">最大推文数（可空）</label>
+        <div class="row">
+          <label for="kinds">媒体类型</label>
+          <input id="kinds" type="text" value="image,video,gif" />
+        </div>
+      </div>
+
+      <details>
+        <summary>高级参数（可选）</summary>
+        <div class="grid2">
+          <div class="row">
+            <label for="maxTweets">最大推文数</label>
             <input id="maxTweets" type="number" min="1" placeholder="50" />
           </div>
-        </div>
-        <div class="row two">
-          <div>
+          <div class="row">
             <label for="concurrency">并发</label>
             <input id="concurrency" type="number" min="1" value="4" />
           </div>
-          <div>
+          <div class="row">
             <label for="retry">媒体重试</label>
             <input id="retry" type="number" min="0" value="2" />
           </div>
-        </div>
-        <div class="row two">
-          <div>
+          <div class="row">
             <label for="userRetry">用户重试</label>
             <input id="userRetry" type="number" min="0" value="1" />
           </div>
-          <div>
+          <div class="row">
             <label for="userDelayMs">用户间隔(ms)</label>
             <input id="userDelayMs" type="number" min="0" value="0" />
           </div>
+          <div class="row">
+            <label for="requestDelayMs">请求间隔(ms)</label>
+            <input id="requestDelayMs" type="number" min="0" value="0" />
+          </div>
         </div>
-        <div class="row">
-          <label for="requestDelayMs">请求间隔(ms)</label>
-          <input id="requestDelayMs" type="number" min="0" value="0" />
-        </div>
-        <div class="actions">
-          <button class="primary" id="btnStart">开始下载</button>
-          <button class="warn" id="btnStop">停止任务</button>
-        </div>
-      </section>
-    </div>
+      </details>
+
+      <div class="actions" style="margin-top:10px;">
+        <button class="primary" id="btnStart">开始下载</button>
+        <button class="warn" id="btnStop">停止任务</button>
+      </div>
+    </section>
 
     <section class="log">
-      <div class="actions" style="margin-bottom:8px">
+      <div class="log-head">
         <strong>实时日志</strong>
         <button id="btnClear">清空</button>
       </div>
-      <pre id="log" class="mono"></pre>
+      <pre id="log"></pre>
       <p class="status" id="status">状态：准备就绪</p>
     </section>
   </div>
@@ -198,6 +340,183 @@ const HTML_PAGE = `<!doctype html>
           return element;
         }
 
+        function toTimeLabel(ts) {
+          if (!ts) {
+            return "";
+          }
+
+          var date = new Date(ts);
+          if (Number.isNaN(date.getTime())) {
+            return "";
+          }
+
+          return date.toLocaleTimeString("zh-CN", { hour12: false });
+        }
+
+        function safeParseJson(text) {
+          if (!text) {
+            return null;
+          }
+
+          try {
+            return JSON.parse(text);
+          } catch {
+            return null;
+          }
+        }
+
+        function withTimePrefix(text, ts) {
+          var t = toTimeLabel(ts);
+          if (!t) {
+            return text;
+          }
+
+          return "[" + t + "] " + text;
+        }
+
+        function formatParsedLog(parsed, fallbackLine) {
+          if (!parsed || typeof parsed !== "object") {
+            return fallbackLine || "";
+          }
+
+          var message = parsed.message || "";
+          var event = parsed.event;
+
+          if (message === "job_event" && event) {
+            if (event.type === "job_started") {
+              return withTimePrefix("任务开始", event.timestamp || parsed.ts);
+            }
+
+            if (event.type === "user_started") {
+              return withTimePrefix("开始处理 @" + (event.username || "unknown"), event.timestamp || parsed.ts);
+            }
+
+            if (event.type === "media_found") {
+              return withTimePrefix("@" + (event.username || "unknown") + " " + event.message, event.timestamp || parsed.ts);
+            }
+
+            if (event.type === "download_progress" && event.progress) {
+              return withTimePrefix(
+                "@" +
+                  (event.username || "unknown") +
+                  " 下载进度：下载 " +
+                  event.progress.downloaded +
+                  "/" +
+                  event.progress.total +
+                  "，失败 " +
+                  event.progress.failed +
+                  "，跳过 " +
+                  event.progress.skipped,
+                event.timestamp || parsed.ts
+              );
+            }
+
+            if (event.type === "user_finished") {
+              return withTimePrefix("@" + (event.username || "unknown") + " 处理完成", event.timestamp || parsed.ts);
+            }
+
+            if (event.type === "job_finished" && event.progress) {
+              return withTimePrefix(
+                "任务完成：总 " +
+                  event.progress.total +
+                  "，下载 " +
+                  event.progress.downloaded +
+                  "，失败 " +
+                  event.progress.failed +
+                  "，跳过 " +
+                  event.progress.skipped,
+                event.timestamp || parsed.ts
+              );
+            }
+
+            if (event.type === "warning") {
+              return withTimePrefix("警告：" + event.message, event.timestamp || parsed.ts);
+            }
+
+            if (event.type === "error") {
+              return withTimePrefix("错误：" + event.message, event.timestamp || parsed.ts);
+            }
+
+            return withTimePrefix(event.message || "任务事件", event.timestamp || parsed.ts);
+          }
+
+          if (message === "job_summary" && parsed.report && parsed.report.summary) {
+            var s = parsed.report.summary;
+            return withTimePrefix(
+              "汇总：用户成功 " +
+                s.succeededUsers +
+                "/" +
+                s.totalUsers +
+                "，媒体下载 " +
+                s.downloaded +
+                "/" +
+                s.totalMedia +
+                "，失败 " +
+                s.failed +
+                "，跳过 " +
+                s.skipped,
+              parsed.ts
+            );
+          }
+
+          if (message === "job_failures") {
+            var count = Array.isArray(parsed.failures) ? parsed.failures.length : 0;
+            return withTimePrefix("失败明细：" + count + " 条", parsed.ts);
+          }
+
+          if (message === "Download job started") {
+            return withTimePrefix(
+              "已开始下载：用户 " + (parsed.users || "?") + " 个，目录 " + (parsed.outputDir || ""),
+              parsed.ts
+            );
+          }
+
+          if (message === "Login session saved") {
+            return withTimePrefix("登录已保存（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
+          }
+
+          if (message === "Logged in") {
+            return withTimePrefix("当前已登录（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
+          }
+
+          if (message === "Session cleared") {
+            return withTimePrefix("本地会话已清理", parsed.ts);
+          }
+
+          if (typeof message === "string" && message.indexOf("Error [") === 0) {
+            return withTimePrefix("错误：" + (parsed.detail || message), parsed.ts);
+          }
+
+          if (message) {
+            return withTimePrefix(String(message), parsed.ts);
+          }
+
+          return fallbackLine || "";
+        }
+
+        function appendCommandResult(prefix, result) {
+          var ok = result.exitCode === 0;
+          appendLog("[" + prefix + "] " + (ok ? "成功" : "失败") + " (exit=" + result.exitCode + ")");
+
+          var outputLines = [];
+          if (result.stdout) {
+            outputLines = outputLines.concat(String(result.stdout).split(/\\r?\\n/));
+          }
+          if (result.stderr) {
+            outputLines = outputLines.concat(String(result.stderr).split(/\\r?\\n/));
+          }
+
+          for (var i = 0; i < outputLines.length; i += 1) {
+            var rawLine = outputLines[i].trim();
+            if (!rawLine) {
+              continue;
+            }
+
+            var parsed = safeParseJson(rawLine);
+            appendLog("  " + formatParsedLog(parsed, rawLine));
+          }
+        }
+
         try {
           var btnLogin = must("btnLogin");
           var btnWhoami = must("btnWhoami");
@@ -214,7 +533,7 @@ const HTML_PAGE = `<!doctype html>
                 cookieFilePath: must("cookieFilePath").value,
                 looseCookie: must("looseCookie").checked
               });
-              appendLog("[login] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
+              appendCommandResult("login", result);
               setStatus(result.exitCode === 0 ? "登录已保存" : "登录失败");
             } catch (error) {
               appendLog("[login] " + (error && error.message ? error.message : String(error)));
@@ -225,7 +544,7 @@ const HTML_PAGE = `<!doctype html>
           btnWhoami.addEventListener("click", async function () {
             try {
               var result = await post("/api/whoami", {});
-              appendLog("[whoami] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
+              appendCommandResult("whoami", result);
             } catch (error) {
               appendLog("[whoami] " + (error && error.message ? error.message : String(error)));
             }
@@ -234,7 +553,7 @@ const HTML_PAGE = `<!doctype html>
           btnLogout.addEventListener("click", async function () {
             try {
               var result = await post("/api/logout", {});
-              appendLog("[logout] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
+              appendCommandResult("logout", result);
             } catch (error) {
               appendLog("[logout] " + (error && error.message ? error.message : String(error)));
             }
@@ -286,14 +605,24 @@ const HTML_PAGE = `<!doctype html>
             events.addEventListener("log", function (event) {
               var data = JSON.parse(event.data);
               if (data.parsed) {
-                appendLog(JSON.stringify(data.parsed));
+                appendLog(formatParsedLog(data.parsed, data.line));
               } else {
                 appendLog(data.line);
               }
             });
             events.addEventListener("job", function (event) {
               var data = JSON.parse(event.data);
-              appendLog("[job] " + JSON.stringify(data));
+
+              if (data.type === "started") {
+                appendLog("任务已启动（用户 " + (data.users || "?") + " 个，目录 " + (data.outDir || "") + "）");
+              } else if (data.type === "finished") {
+                appendLog("任务已结束（exit=" + data.exitCode + (data.signal ? ", signal=" + data.signal : "") + "）");
+              } else if (data.type === "error") {
+                appendLog("任务异常：" + (data.message || "未知错误"));
+              } else {
+                appendLog("[job] " + JSON.stringify(data));
+              }
+
               if (data.type === "finished") {
                 setStatus(data.exitCode === 0 || data.exitCode === 4 ? "任务结束" : "任务失败");
               }
