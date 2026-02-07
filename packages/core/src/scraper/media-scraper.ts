@@ -11,6 +11,7 @@ export interface FetchUserMediaInput {
 export interface MediaScraper {
   initialize(session: SessionData): Promise<void>;
   fetchUserMedia(input: FetchUserMediaInput): Promise<MediaItem[]>;
+  close?(): Promise<void>;
 }
 
 interface DomMediaCandidate {
@@ -148,6 +149,25 @@ async function extractMediaFromPage(
         };
       };
 
+      const normalizeImageUrl = (raw: string): string => {
+        try {
+          const parsed = new URL(raw, window.location.origin);
+
+          if (!parsed.hostname.includes("pbs.twimg.com")) {
+            return raw;
+          }
+
+          if (!parsed.pathname.includes("/media/")) {
+            return raw;
+          }
+
+          parsed.searchParams.set("name", "orig");
+          return parsed.toString();
+        } catch {
+          return raw;
+        }
+      };
+
       for (const article of articles) {
         const socialContextText =
           article.querySelector('div[data-testid="socialContext"]')?.textContent?.toLowerCase() ?? "";
@@ -209,16 +229,18 @@ async function extractMediaFromPage(
             continue;
           }
 
-          if (!src.includes("pbs.twimg.com/media/") && !src.includes("pbs.twimg.com/ext_tw_video_thumb/")) {
+          if (!src.includes("pbs.twimg.com/media/")) {
             continue;
           }
+
+          const normalizedSrc = normalizeImageUrl(src);
 
           candidates.push({
             id: `${tweetId}_img_${imageIndex}`,
             tweetId,
             username,
             kind: "image",
-            url: src,
+            url: normalizedSrc,
             createdAt
           });
           imageIndex += 1;
@@ -393,8 +415,16 @@ class PlaywrightMediaScraper implements MediaScraper {
       await this.page?.close();
       await this.context?.close();
       await this.browser?.close();
+      this.page = null;
+      this.context = null;
+      this.browser = null;
+      this.initialized = false;
     } catch {
     }
+  }
+
+  async close(): Promise<void> {
+    await this.dispose();
   }
 }
 

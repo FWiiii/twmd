@@ -10,6 +10,11 @@ export function sanitizePathPart(input: string): string {
 function extensionFromUrl(url: string): string | undefined {
   try {
     const parsed = new URL(url);
+    const format = parsed.searchParams.get("format")?.trim().toLowerCase();
+    if (format && /^[a-z0-9]+$/.test(format)) {
+      return format;
+    }
+
     const ext = extname(parsed.pathname).toLowerCase();
     if (!ext) {
       return undefined;
