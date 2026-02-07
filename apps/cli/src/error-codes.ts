@@ -87,7 +87,7 @@ export function toCliError(error: unknown): CliError {
   ) {
     return new CliError(
       "TWMD_E_USAGE",
-      `${message}\nHint: run 'npx playwright install chromium' before using --engine playwright.`
+      `${message}\nHint: run 'npx playwright install chromium' before downloading media.`
     );
   }
 

@@ -12,7 +12,6 @@ export interface BatchJobRunInput extends BatchJobInput {
 const DEFAULT_USER_RETRY_COUNT = 1;
 const DEFAULT_USER_DELAY_MS = 0;
 const DEFAULT_REQUEST_DELAY_MS = 0;
-const DEFAULT_ENGINE = "agent" as const;
 
 function createEvent(
   type: JobEvent["type"],
@@ -38,17 +37,10 @@ function buildAnonymousSession(): SessionData {
 export async function *runBatchJob(
   input: BatchJobRunInput
 ): AsyncGenerator<JobEvent, JobResult, void> {
-  const engine = input.engine ?? DEFAULT_ENGINE;
   const session = await input.store.load();
-
-  if (engine !== "playwright") {
-    if (!session || !session.valid || session.cookies.length === 0) {
-      throw new Error("Session is not available. Run login first.");
-    }
-  }
-
-  const scraper = input.scraper ?? createMediaScraper(engine);
-  await scraper.initialize(session ?? buildAnonymousSession());
+  const activeSession = session && session.cookies.length > 0 ? session : buildAnonymousSession();
+  const scraper = input.scraper ?? createMediaScraper();
+  await scraper.initialize(activeSession);
 
   const result: JobResult = {
     totalUsers: input.users.length,
@@ -65,7 +57,7 @@ export async function *runBatchJob(
   const userDelayMs = Math.max(0, input.userDelayMs ?? DEFAULT_USER_DELAY_MS);
   const perRequestDelayMs = Math.max(0, input.perRequestDelayMs ?? DEFAULT_REQUEST_DELAY_MS);
 
-  yield createEvent("job_started", `Batch started for ${input.users.length} user(s). engine=${engine}`);
+  yield createEvent("job_started", `Batch started for ${input.users.length} user(s).`);
 
   for (const usernameRaw of input.users) {
     const username = usernameRaw.replace(/^@/, "").trim();

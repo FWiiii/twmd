@@ -9,7 +9,7 @@ Twitter/X 媒体批量下载器项目（TypeScript Monorepo）。
 - `packages/core`：抓取与下载核心能力（可复用）
 - `packages/shared`：共享类型与模型
 
-## 当前状态（M2.2 Playwright 引擎）
+## 当前状态（M2.2 Playwright）
 
 - ✅ 本地会话保存（cookie）
 - ✅ 严格 cookie 校验（默认要求 `auth_token` + `ct0`）
@@ -20,7 +20,6 @@ Twitter/X 媒体批量下载器项目（TypeScript Monorepo）。
 - ✅ JSON/CSV 报告输出
 - ✅ 错误码与标准退出码
 - ✅ `--quiet` / `--no-color` / `--output-format json`
-- ✅ `--engine agent|playwright`（新增）
 - 🚧 GUI 仍为占位
 
 ## CLI 快速使用
@@ -30,9 +29,9 @@ pnpm install
 pnpm build
 ```
 
-### Playwright 引擎准备（M2.2）
+### Playwright 运行准备（M2.2）
 
-首次使用 `--engine playwright` 前，安装浏览器：
+首次使用前，安装浏览器：
 
 ```bash
 npx playwright install chromium
@@ -64,24 +63,12 @@ node apps/cli/dist/index.js whoami
 
 ### 3) 下载指定用户媒体
 
-#### `agent` 引擎（默认）
-
-```bash
-node apps/cli/dist/index.js download \
-  --users user1,user2 \
-  --out ./downloads \
-  --engine agent \
-  --kinds image,video,gif \
-  --max-tweets 200
-```
-
-#### `playwright` 引擎（推荐用于公开账号兜底）
+#### Playwright（默认引擎）
 
 ```bash
 node apps/cli/dist/index.js download \
   --users nasa \
   --out ./downloads \
-  --engine playwright \
   --kinds image,video,gif \
   --max-tweets 50 \
   --concurrency 2 \
@@ -95,7 +82,6 @@ node apps/cli/dist/index.js download \
 也可使用 `--users-file ./users.txt`（每行一个用户，可带 `@`）。
 
 参数说明：
-- `--engine`：抓取引擎（`agent` / `playwright`）
 - 默认仅下载用户本人原创媒体（排除转推/转发内容）
 - `--retry`：单个媒体下载失败后的重试次数（可为 0）
 - `--user-retry`：单个用户任务失败后的重试次数（可为 0）
@@ -116,7 +102,7 @@ node apps/cli/dist/index.js download \
 示例：
 
 ```bash
-node apps/cli/dist/index.js download --users nasa --out ./downloads --engine playwright --output-format json
+node apps/cli/dist/index.js download --users nasa --out ./downloads --output-format json
 ```
 
 ### 5) 清理本地会话

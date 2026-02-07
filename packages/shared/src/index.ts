@@ -1,5 +1,4 @@
 export type MediaKind = "image" | "video" | "gif";
-export type ScraperEngine = "agent" | "playwright";
 
 export interface SessionData {
   cookies: string[];
@@ -36,7 +35,6 @@ export interface BatchJobInput {
   users: string[];
   outputDir: string;
   mediaKinds: MediaKind[];
-  engine?: ScraperEngine;
   maxTweetsPerUser?: number;
   concurrency?: number;
   retryCount?: number;
