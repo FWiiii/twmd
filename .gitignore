@@ -1,0 +1,19 @@
+node_modules
+dist
+coverage
+.DS_Store
+.turbo
+.pnpm-store
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+
+# Tauri build artifacts
+apps/gui/src-tauri/target
+
+# Session or runtime artifacts
+*.tmp

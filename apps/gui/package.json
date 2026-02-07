@@ -1,0 +1,10 @@
+{
+  "name": "@twmd/gui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo \"GUI build will be added in next milestone\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
