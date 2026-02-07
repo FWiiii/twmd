@@ -10,6 +10,18 @@ import {
 } from "@twmd/core";
 import type { FailureDetail, JobResult, MediaKind } from "@twmd/shared";
 import { CliError, EXIT_CODES, toCliError } from "./error-codes.js";
+import {
+  createOutputOptions,
+  logError,
+  logFailureDetails,
+  logInfo,
+  logJobEvent,
+  logSummary,
+  logWarn,
+  parseOutputFormat,
+  stripGlobalFlags,
+  type OutputOptions
+} from "./output.js";
 import { createCsvReport, createJsonReport } from "./reporting.js";
 
 const DEFAULT_MEDIA_KINDS: MediaKind[] = ["image", "video", "gif"];
@@ -23,14 +35,19 @@ function usageError(message: string): CliError {
   return new CliError("TWMD_E_USAGE", message);
 }
 
-function printHelp(sessionPath: string): void {
-  console.log(`
+function getHelpText(sessionPath: string): string {
+  return `
 Usage:
   twmd login --cookie-file <path> [--loose-cookie]
   twmd whoami
   twmd logout
   twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
   twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+
+Global Options:
+  --quiet
+  --no-color
+  --output-format <text|json>
 
 Exit Codes:
   0 success
@@ -41,7 +58,24 @@ Exit Codes:
 
 Session path:
   ${sessionPath}
-`.trim());
+`.trim();
+}
+
+function printHelp(sessionPath: string, output: OutputOptions): void {
+  const text = getHelpText(sessionPath);
+  if (output.format === "json") {
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "info",
+        message: "help",
+        help: text
+      })
+    );
+    return;
+  }
+
+  console.log(text);
 }
 
 function getOptionValue(args: string[], key: string): string | undefined {
@@ -166,7 +200,11 @@ function formatFailureDetails(details: FailureDetail[]): string {
     .join("\n");
 }
 
-async function writeReports(result: JobResult, args: string[]): Promise<void> {
+async function writeReports(
+  result: JobResult,
+  args: string[],
+  output: OutputOptions
+): Promise<void> {
   const jsonReportPath = getOptionValue(args, "--json-report");
   const csvReportPath = getOptionValue(args, "--csv-report");
   const failuresReportPath = getOptionValue(args, "--failures-report");
@@ -174,22 +212,22 @@ async function writeReports(result: JobResult, args: string[]): Promise<void> {
   if (jsonReportPath) {
     const jsonReport = createJsonReport(result);
     await writeFile(jsonReportPath, JSON.stringify(jsonReport, null, 2));
-    console.log(`JSON report written: ${jsonReportPath}`);
+    logInfo(output, "JSON report written", { path: jsonReportPath });
   }
 
   if (csvReportPath) {
     const csvReport = createCsvReport(result);
     await writeFile(csvReportPath, csvReport);
-    console.log(`CSV report written: ${csvReportPath}`);
+    logInfo(output, "CSV report written", { path: csvReportPath });
   }
 
   if (failuresReportPath) {
     await writeFile(failuresReportPath, JSON.stringify(result.failureDetails, null, 2));
-    console.log(`Failure details written: ${failuresReportPath}`);
+    logInfo(output, "Failure details report written", { path: failuresReportPath });
   }
 }
 
-async function runLogin(args: string[]): Promise<void> {
+async function runLogin(args: string[], output: OutputOptions): Promise<void> {
   const cookieFilePath = getOptionValue(args, "--cookie-file");
   if (!cookieFilePath) {
     throw usageError("login requires --cookie-file <path>");
@@ -204,14 +242,15 @@ async function runLogin(args: string[]): Promise<void> {
     strict: !looseCookieMode
   });
 
-  console.log("Login session saved.");
-  console.log(`Cookies loaded: ${session.cookies.length}`);
-  console.log(`Updated at: ${session.updatedAt}`);
-  console.log(`Strict validation: ${looseCookieMode ? "off" : "on"}`);
-  console.log(`Session file: ${store.path}`);
+  logInfo(output, "Login session saved", {
+    cookieCount: session.cookies.length,
+    updatedAt: session.updatedAt,
+    strict: !looseCookieMode,
+    sessionPath: store.path
+  });
 }
 
-async function runWhoami(): Promise<void> {
+async function runWhoami(output: OutputOptions): Promise<void> {
   const store = createSessionStore({ appName: "tw-media-downloader" });
   const session = await whoami(store);
 
@@ -223,18 +262,19 @@ async function runWhoami(): Promise<void> {
     );
   }
 
-  console.log("Logged in.");
-  console.log(`Session updated at: ${session.updatedAt}`);
-  console.log(`Cookie count: ${session.cookieCount}`);
+  logInfo(output, "Logged in", {
+    updatedAt: session.updatedAt,
+    cookieCount: session.cookieCount
+  });
 }
 
-async function runLogout(): Promise<void> {
+async function runLogout(output: OutputOptions): Promise<void> {
   const store = createSessionStore({ appName: "tw-media-downloader" });
   await logout(store);
-  console.log("Session cleared.");
+  logInfo(output, "Session cleared", { sessionPath: store.path });
 }
 
-async function runDownload(args: string[]): Promise<JobResult> {
+async function runDownload(args: string[], output: OutputOptions): Promise<JobResult> {
   const outputDir = getOptionValue(args, "--out");
   if (!outputDir) {
     throw usageError("download requires --out <dir>");
@@ -275,33 +315,17 @@ async function runDownload(args: string[]): Promise<JobResult> {
       break;
     }
 
-    const event = current.value;
-    const userPrefix = event.username ? `[@${event.username}] ` : "";
-
-    if (event.progress) {
-      const progress = event.progress;
-      console.log(
-        `${event.timestamp} ${event.type} ${userPrefix}${event.message} (total=${progress.total} downloaded=${progress.downloaded} failed=${progress.failed} skipped=${progress.skipped})`
-      );
-      continue;
-    }
-
-    console.log(`${event.timestamp} ${event.type} ${userPrefix}${event.message}`);
+    logJobEvent(output, current.value);
   }
 
   if (!result) {
     throw new CliError("TWMD_E_INTERNAL", "Batch job did not return a result.");
   }
 
-  console.log("\nSummary");
-  console.log(summarizeJobResult(result));
+  logSummary(output, result, summarizeJobResult(result));
+  logFailureDetails(output, result.failureDetails, formatFailureDetails(result.failureDetails));
 
-  if (result.failureDetails.length > 0) {
-    console.log("\nFailure Details");
-    console.log(formatFailureDetails(result.failureDetails));
-  }
-
-  await writeReports(result, args);
+  await writeReports(result, args, output);
   return result;
 }
 
@@ -309,35 +333,57 @@ function hasFinalFailures(result: JobResult): boolean {
   return result.failedUsers > 0 || result.failed > 0;
 }
 
+function validateGlobalOutputFlags(args: string[]): void {
+  const format = parseOutputFormat(args);
+  if (format === undefined) {
+    return;
+  }
+
+  if (!format) {
+    throw usageError("--output-format requires a value: text or json.");
+  }
+
+  if (format !== "text" && format !== "json") {
+    throw usageError(`Invalid --output-format value: ${format}. Expected text or json.`);
+  }
+}
+
 async function main(): Promise<void> {
   const store = createSessionStore({ appName: "tw-media-downloader" });
-  const [, , command = "help", ...args] = process.argv;
+  const [, , command = "help", ...rawArgs] = process.argv;
 
   try {
+    validateGlobalOutputFlags(rawArgs);
+    const output = createOutputOptions(rawArgs);
+    const args = stripGlobalFlags(rawArgs);
+
     if (command === "help" || command === "--help" || command === "-h") {
-      printHelp(store.path);
+      printHelp(store.path, output);
       return;
     }
 
     if (command === "login") {
-      await runLogin(args);
+      await runLogin(args, output);
       return;
     }
 
     if (command === "whoami") {
-      await runWhoami();
+      await runWhoami(output);
       return;
     }
 
     if (command === "logout") {
-      await runLogout();
+      await runLogout(output);
       return;
     }
 
     if (command === "download") {
-      const result = await runDownload(args);
+      const result = await runDownload(args, output);
       if (hasFinalFailures(result)) {
-        console.warn("Completed with failures. See report output for details.");
+        logWarn(output, "Completed with failures", {
+          failedUsers: result.failedUsers,
+          failedMedia: result.failed
+        });
         process.exitCode = EXIT_CODES.PARTIAL_FAILURE;
       }
       return;
@@ -346,7 +392,11 @@ async function main(): Promise<void> {
     throw usageError(`Unknown command: ${command}`);
   } catch (error) {
     const cliError = toCliError(error);
-    console.error(`Error [${cliError.code}] (exit=${cliError.exitCode}): ${cliError.message}`);
+    const output = createOutputOptions(rawArgs);
+    logError(output, `Error [${cliError.code}]`, {
+      exitCode: cliError.exitCode,
+      detail: cliError.message
+    });
     process.exitCode = cliError.exitCode;
   }
 }

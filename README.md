@@ -9,7 +9,7 @@ Twitter/X 媒体批量下载器项目（TypeScript Monorepo）。
 - `packages/core`：抓取与下载核心能力（可复用）
 - `packages/shared`：共享类型与模型
 
-## 当前状态（M2 CLI 完整化）
+## 当前状态（M2.1 CLI 输出增强）
 
 - ✅ 本地会话保存（cookie）
 - ✅ 严格 cookie 校验（默认要求 `auth_token` + `ct0`）
@@ -19,6 +19,7 @@ Twitter/X 媒体批量下载器项目（TypeScript Monorepo）。
 - ✅ 用户级重试与限速参数
 - ✅ JSON/CSV 报告输出
 - ✅ 错误码与标准退出码
+- ✅ `--quiet` / `--no-color` / `--output-format json`
 - 🚧 GUI 仍为占位
 
 ## CLI 快速使用
@@ -82,7 +83,21 @@ node apps/cli/dist/index.js download \
 - `--csv-report`：输出扁平 CSV 报告（summary 行 + failure 行）
 - `--failures-report`：仅输出失败明细 JSON
 
-### 4) 清理本地会话
+### 4) 全局输出参数（M2.1）
+
+- `--quiet`：仅保留必要输出（仍会输出错误）
+- `--no-color`：关闭彩色文本输出
+- `--output-format text|json`：控制标准输出格式
+  - `text`：适合人读（默认）
+  - `json`：每行一个 JSON 日志对象，适合脚本/GUI 管道消费
+
+示例：
+
+```bash
+node apps/cli/dist/index.js download --users user1 --out ./downloads --output-format json
+```
+
+### 5) 清理本地会话
 
 ```bash
 node apps/cli/dist/index.js logout
