@@ -1,5 +1,11 @@
 export type MediaKind = "image" | "video" | "gif";
 
+export interface SessionData {
+  cookiesRaw: string;
+  updatedAt: string;
+  valid: boolean;
+}
+
 export interface BatchJobInput {
   users: string[];
   outputDir: string;
@@ -22,4 +28,15 @@ export interface JobEvent {
   type: JobEventType;
   message: string;
   timestamp: string;
+  username?: string;
+}
+
+export interface JobResult {
+  totalUsers: number;
+  succeededUsers: number;
+  failedUsers: number;
+  totalMedia: number;
+  downloaded: number;
+  failed: number;
+  skipped: number;
 }
