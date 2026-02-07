@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import {
   createSessionStore,
   loginWithCookies,
@@ -11,6 +11,8 @@ import {
 import type { JobResult, MediaKind } from "@twmd/shared";
 
 const DEFAULT_MEDIA_KINDS: MediaKind[] = ["image", "video", "gif"];
+const DEFAULT_CONCURRENCY = 4;
+const DEFAULT_RETRY_COUNT = 2;
 
 function printHelp(sessionPath: string): void {
   console.log(`
@@ -18,8 +20,8 @@ Usage:
   twmd login --cookie-file <path>
   twmd whoami
   twmd logout
-  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N]
-  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N]
+  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--json-report <file>]
+  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--json-report <file>]
 
 Session path:
   ${sessionPath}
@@ -124,6 +126,7 @@ async function runLogin(args: string[]): Promise<void> {
   const session = await loginWithCookies({ store, cookieText });
 
   console.log("Login session saved.");
+  console.log(`Cookies loaded: ${session.cookies.length}`);
   console.log(`Updated at: ${session.updatedAt}`);
   console.log(`Session file: ${store.path}`);
 }
@@ -139,6 +142,7 @@ async function runWhoami(): Promise<void> {
 
   console.log("Logged in.");
   console.log(`Session updated at: ${session.updatedAt}`);
+  console.log(`Cookie count: ${session.cookieCount}`);
 }
 
 async function runLogout(): Promise<void> {
@@ -156,7 +160,9 @@ async function runDownload(args: string[]): Promise<void> {
   const users = await parseUsers(args);
   const mediaKinds = parseKinds(args);
   const maxTweetsPerUser = parseIntegerOption(args, "--max-tweets");
-  const concurrency = parseIntegerOption(args, "--concurrency");
+  const concurrency = parseIntegerOption(args, "--concurrency") ?? DEFAULT_CONCURRENCY;
+  const retryCount = parseIntegerOption(args, "--retry") ?? DEFAULT_RETRY_COUNT;
+  const jsonReportPath = getOptionValue(args, "--json-report");
 
   const store = createSessionStore({ appName: "tw-media-downloader" });
   const job = runBatchJob({
@@ -165,7 +171,8 @@ async function runDownload(args: string[]): Promise<void> {
     outputDir,
     mediaKinds,
     maxTweetsPerUser,
-    concurrency
+    concurrency,
+    retryCount
   });
 
   let result: JobResult | undefined;
@@ -179,6 +186,15 @@ async function runDownload(args: string[]): Promise<void> {
 
     const event = current.value;
     const userPrefix = event.username ? `[@${event.username}] ` : "";
+
+    if (event.progress) {
+      const progress = event.progress;
+      console.log(
+        `${event.timestamp} ${event.type} ${userPrefix}${event.message} (total=${progress.total} downloaded=${progress.downloaded} failed=${progress.failed} skipped=${progress.skipped})`
+      );
+      continue;
+    }
+
     console.log(`${event.timestamp} ${event.type} ${userPrefix}${event.message}`);
   }
 
@@ -188,6 +204,11 @@ async function runDownload(args: string[]): Promise<void> {
 
   console.log("\nSummary");
   console.log(summarizeJobResult(result));
+
+  if (jsonReportPath) {
+    await writeFile(jsonReportPath, JSON.stringify(result, null, 2));
+    console.log(`JSON report written: ${jsonReportPath}`);
+  }
 }
 
 async function main(): Promise<void> {

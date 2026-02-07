@@ -3,11 +3,6 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "baseUrl": ".",
-    "paths": {
-      "@twmd/shared": ["packages/shared/src/index.ts"],
-      "@twmd/core": ["packages/core/src/index.ts"]
-    },
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
