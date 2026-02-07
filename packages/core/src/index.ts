@@ -3,6 +3,7 @@ export {
   loginWithCookies,
   logout,
   parseCookies,
+  validateRequiredCookies,
   whoami,
   type LoginWithCookiesInput,
   type SessionStore,

@@ -8,20 +8,23 @@ import {
   summarizeJobResult,
   whoami
 } from "@twmd/core";
-import type { JobResult, MediaKind } from "@twmd/shared";
+import type { FailureDetail, JobResult, MediaKind } from "@twmd/shared";
 
 const DEFAULT_MEDIA_KINDS: MediaKind[] = ["image", "video", "gif"];
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_RETRY_COUNT = 2;
+const DEFAULT_USER_RETRY_COUNT = 1;
+const DEFAULT_USER_DELAY_MS = 0;
+const DEFAULT_REQUEST_DELAY_MS = 0;
 
 function printHelp(sessionPath: string): void {
   console.log(`
 Usage:
-  twmd login --cookie-file <path>
+  twmd login --cookie-file <path> [--loose-cookie]
   twmd whoami
   twmd logout
-  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--json-report <file>]
-  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--json-report <file>]
+  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--failures-report <file>]
+  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--failures-report <file>]
 
 Session path:
   ${sessionPath}
@@ -37,7 +40,11 @@ function getOptionValue(args: string[], key: string): string | undefined {
   return args[index + 1];
 }
 
-function parseIntegerOption(args: string[], key: string): number | undefined {
+function hasFlag(args: string[], flag: string): boolean {
+  return args.includes(flag);
+}
+
+function parsePositiveIntegerOption(args: string[], key: string): number | undefined {
   const raw = getOptionValue(args, key);
   if (raw === undefined) {
     return undefined;
@@ -45,6 +52,20 @@ function parseIntegerOption(args: string[], key: string): number | undefined {
 
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Invalid value for ${key}: ${raw}`);
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeIntegerOption(args: string[], key: string): number | undefined {
+  const raw = getOptionValue(args, key);
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
     throw new Error(`Invalid value for ${key}: ${raw}`);
   }
 
@@ -115,19 +136,42 @@ async function parseUsers(args: string[]): Promise<string[]> {
   return users;
 }
 
+function formatFailureDetails(details: FailureDetail[]): string {
+  if (details.length === 0) {
+    return "No failures recorded.";
+  }
+
+  return details
+    .map((detail) => {
+      const mediaPart = detail.media
+        ? ` tweet=${detail.media.tweetId} media=${detail.media.mediaId}`
+        : "";
+      const codePart = detail.code ? ` code=${detail.code}` : "";
+      const attemptsPart = detail.attempts ? ` attempts=${detail.attempts}` : "";
+      return `${detail.timestamp} scope=${detail.scope} user=@${detail.username}${codePart}${attemptsPart}${mediaPart} message=${detail.message}`;
+    })
+    .join("\n");
+}
+
 async function runLogin(args: string[]): Promise<void> {
   const cookieFilePath = getOptionValue(args, "--cookie-file");
   if (!cookieFilePath) {
     throw new Error("login requires --cookie-file <path>");
   }
 
+  const looseCookieMode = hasFlag(args, "--loose-cookie");
   const cookieText = await readFile(cookieFilePath, "utf8");
   const store = createSessionStore({ appName: "tw-media-downloader" });
-  const session = await loginWithCookies({ store, cookieText });
+  const session = await loginWithCookies({
+    store,
+    cookieText,
+    strict: !looseCookieMode
+  });
 
   console.log("Login session saved.");
   console.log(`Cookies loaded: ${session.cookies.length}`);
   console.log(`Updated at: ${session.updatedAt}`);
+  console.log(`Strict validation: ${looseCookieMode ? "off" : "on"}`);
   console.log(`Session file: ${store.path}`);
 }
 
@@ -136,7 +180,10 @@ async function runWhoami(): Promise<void> {
   const session = await whoami(store);
 
   if (!session.loggedIn) {
-    console.log("Not logged in.");
+    console.log("Not logged in or session is incomplete.");
+    if (session.missingCookieNames && session.missingCookieNames.length > 0) {
+      console.log(`Missing required cookies: ${session.missingCookieNames.join(", ")}`);
+    }
     return;
   }
 
@@ -159,10 +206,17 @@ async function runDownload(args: string[]): Promise<void> {
 
   const users = await parseUsers(args);
   const mediaKinds = parseKinds(args);
-  const maxTweetsPerUser = parseIntegerOption(args, "--max-tweets");
-  const concurrency = parseIntegerOption(args, "--concurrency") ?? DEFAULT_CONCURRENCY;
-  const retryCount = parseIntegerOption(args, "--retry") ?? DEFAULT_RETRY_COUNT;
+  const maxTweetsPerUser = parsePositiveIntegerOption(args, "--max-tweets");
+  const concurrency = parsePositiveIntegerOption(args, "--concurrency") ?? DEFAULT_CONCURRENCY;
+  const retryCount = parseNonNegativeIntegerOption(args, "--retry") ?? DEFAULT_RETRY_COUNT;
+  const userRetryCount =
+    parseNonNegativeIntegerOption(args, "--user-retry") ?? DEFAULT_USER_RETRY_COUNT;
+  const userDelayMs =
+    parseNonNegativeIntegerOption(args, "--user-delay-ms") ?? DEFAULT_USER_DELAY_MS;
+  const requestDelayMs =
+    parseNonNegativeIntegerOption(args, "--request-delay-ms") ?? DEFAULT_REQUEST_DELAY_MS;
   const jsonReportPath = getOptionValue(args, "--json-report");
+  const failuresReportPath = getOptionValue(args, "--failures-report");
 
   const store = createSessionStore({ appName: "tw-media-downloader" });
   const job = runBatchJob({
@@ -172,7 +226,10 @@ async function runDownload(args: string[]): Promise<void> {
     mediaKinds,
     maxTweetsPerUser,
     concurrency,
-    retryCount
+    retryCount,
+    userRetryCount,
+    userDelayMs,
+    perRequestDelayMs: requestDelayMs
   });
 
   let result: JobResult | undefined;
@@ -205,9 +262,19 @@ async function runDownload(args: string[]): Promise<void> {
   console.log("\nSummary");
   console.log(summarizeJobResult(result));
 
+  if (result.failureDetails.length > 0) {
+    console.log("\nFailure Details");
+    console.log(formatFailureDetails(result.failureDetails));
+  }
+
   if (jsonReportPath) {
     await writeFile(jsonReportPath, JSON.stringify(result, null, 2));
     console.log(`JSON report written: ${jsonReportPath}`);
+  }
+
+  if (failuresReportPath) {
+    await writeFile(failuresReportPath, JSON.stringify(result.failureDetails, null, 2));
+    console.log(`Failure details written: ${failuresReportPath}`);
   }
 }
 

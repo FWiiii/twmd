@@ -21,13 +21,18 @@ export interface SessionStore {
 export interface LoginWithCookiesInput {
   store: SessionStore;
   cookieText: string;
+  strict?: boolean;
+  requiredCookieNames?: string[];
 }
 
 export interface WhoAmIResult {
   loggedIn: boolean;
   updatedAt?: string;
   cookieCount?: number;
+  missingCookieNames?: string[];
 }
+
+const DEFAULT_REQUIRED_COOKIE_NAMES = ["auth_token", "ct0"];
 
 function parseCookieHeader(cookieHeader: string): string[] {
   return cookieHeader
@@ -94,6 +99,47 @@ export function parseCookies(cookieText: string): string[] {
   return parseCookieHeader(text);
 }
 
+function extractCookieName(cookie: string): string | null {
+  const firstSegment = cookie.split(";")[0]?.trim();
+  if (!firstSegment) {
+    return null;
+  }
+
+  const index = firstSegment.indexOf("=");
+  if (index <= 0) {
+    return null;
+  }
+
+  const name = firstSegment.slice(0, index).trim();
+  if (!name) {
+    return null;
+  }
+
+  return name;
+}
+
+export function validateRequiredCookies(
+  cookies: string[],
+  requiredCookieNames: string[] = DEFAULT_REQUIRED_COOKIE_NAMES
+): { valid: boolean; missing: string[]; cookieCount: number } {
+  const names = new Set(
+    cookies
+      .map((cookie) => extractCookieName(cookie))
+      .filter((name): name is string => Boolean(name))
+      .map((name) => name.toLowerCase())
+  );
+
+  const missing = requiredCookieNames.filter((requiredName) =>
+    !names.has(requiredName.toLowerCase())
+  );
+
+  return {
+    valid: missing.length === 0,
+    missing,
+    cookieCount: cookies.length
+  };
+}
+
 export function createSessionStore(options: SessionStoreOptions): SessionStore {
   const baseDir = join(homedir(), `.${options.appName}`);
   const sessionFileName = options.sessionFileName ?? "session.json";
@@ -134,6 +180,17 @@ export async function loginWithCookies(input: LoginWithCookiesInput): Promise<Se
     throw new Error("No valid cookie found from input.");
   }
 
+  const strict = input.strict ?? true;
+  const requiredCookieNames = input.requiredCookieNames ?? DEFAULT_REQUIRED_COOKIE_NAMES;
+  if (strict) {
+    const validation = validateRequiredCookies(cookies, requiredCookieNames);
+    if (!validation.valid) {
+      throw new Error(
+        `Missing required cookies: ${validation.missing.join(", ")}. Please export complete Twitter/X cookies.`
+      );
+    }
+  }
+
   const session: SessionData = {
     cookies,
     updatedAt: nowIso(),
@@ -148,6 +205,16 @@ export async function whoami(store: SessionStore): Promise<WhoAmIResult> {
   const session = await store.load();
   if (!session || !session.valid || session.cookies.length === 0) {
     return { loggedIn: false };
+  }
+
+  const validation = validateRequiredCookies(session.cookies);
+  if (!validation.valid) {
+    return {
+      loggedIn: false,
+      updatedAt: session.updatedAt,
+      cookieCount: session.cookies.length,
+      missingCookieNames: validation.missing
+    };
   }
 
   return {

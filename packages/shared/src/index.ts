@@ -16,6 +16,21 @@ export interface MediaItem {
   filenameHint?: string;
 }
 
+export interface FailureDetail {
+  scope: "user" | "media";
+  username: string;
+  message: string;
+  code?: string;
+  media?: {
+    tweetId: string;
+    mediaId: string;
+    url: string;
+    targetPath?: string;
+  };
+  attempts?: number;
+  timestamp: string;
+}
+
 export interface BatchJobInput {
   users: string[];
   outputDir: string;
@@ -23,6 +38,9 @@ export interface BatchJobInput {
   maxTweetsPerUser?: number;
   concurrency?: number;
   retryCount?: number;
+  userRetryCount?: number;
+  userDelayMs?: number;
+  perRequestDelayMs?: number;
 }
 
 export type JobEventType =
@@ -56,4 +74,5 @@ export interface JobResult {
   downloaded: number;
   failed: number;
   skipped: number;
+  failureDetails: FailureDetail[];
 }
