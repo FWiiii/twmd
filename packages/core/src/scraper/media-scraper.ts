@@ -1,4 +1,4 @@
-import { Scraper, type Tweet } from "agent-twitter-client";
+import { Scraper, SearchMode, type Tweet } from "agent-twitter-client";
 import type { MediaItem, MediaKind, SessionData } from "@twmd/shared";
 import { normalizeCookiesForTwitterRequests } from "../auth/session-store.js";
 
@@ -13,13 +13,27 @@ export interface MediaScraper {
   fetchUserMedia(input: FetchUserMediaInput): Promise<MediaItem[]>;
 }
 
-function isUnauthorizedError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
   }
 
-  const message = error.message.toLowerCase();
+  return String(error);
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase();
   return message.includes("401") || message.includes("unauthorized");
+}
+
+function isTimelineNotFoundError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase();
+  return (
+    message.includes("page does not exist") ||
+    message.includes("\"code\":34") ||
+    message.includes("code:34") ||
+    message.includes("code 34")
+  );
 }
 
 function normalizeUsername(input: string): string {
@@ -113,6 +127,37 @@ function dedupeMedia(items: MediaItem[]): MediaItem[] {
   return deduped;
 }
 
+async function collectFromTimeline(
+  scraper: Scraper,
+  username: string,
+  maxTweets: number
+): Promise<MediaItem[]> {
+  const mediaItems: MediaItem[] = [];
+
+  for await (const tweet of scraper.getTweets(username, maxTweets)) {
+    mediaItems.push(...fromTweetPhotos(tweet, username));
+    mediaItems.push(...fromTweetVideos(tweet, username));
+  }
+
+  return mediaItems;
+}
+
+async function collectFromSearch(
+  scraper: Scraper,
+  username: string,
+  maxTweets: number
+): Promise<MediaItem[]> {
+  const mediaItems: MediaItem[] = [];
+  const query = `from:${username} filter:media`;
+
+  for await (const tweet of scraper.searchTweets(query, maxTweets, SearchMode.Latest)) {
+    mediaItems.push(...fromTweetPhotos(tweet, username));
+    mediaItems.push(...fromTweetVideos(tweet, username));
+  }
+
+  return mediaItems;
+}
+
 export class AgentTwitterMediaScraper implements MediaScraper {
   private authenticatedScraper = new Scraper();
   private guestScraper = new Scraper();
@@ -135,23 +180,34 @@ export class AgentTwitterMediaScraper implements MediaScraper {
 
     const username = normalizeUsername(input.username);
     const maxTweets = input.maxTweets ?? 200;
-
     const allowedKinds = new Set(input.mediaKinds);
-    const mediaItems: MediaItem[] = [];
+
+    let mediaItems: MediaItem[] = [];
 
     try {
-      for await (const tweet of this.authenticatedScraper.getTweets(username, maxTweets)) {
-        mediaItems.push(...fromTweetPhotos(tweet, username));
-        mediaItems.push(...fromTweetVideos(tweet, username));
-      }
+      mediaItems = await collectFromTimeline(this.authenticatedScraper, username, maxTweets);
     } catch (authError) {
-      if (!isUnauthorizedError(authError)) {
+      const canFallback = isUnauthorizedError(authError) || isTimelineNotFoundError(authError);
+      if (!canFallback) {
         throw authError;
       }
 
-      for await (const tweet of this.guestScraper.getTweets(username, maxTweets)) {
-        mediaItems.push(...fromTweetPhotos(tweet, username));
-        mediaItems.push(...fromTweetVideos(tweet, username));
+      try {
+        mediaItems = await collectFromTimeline(this.guestScraper, username, maxTweets);
+      } catch (guestTimelineError) {
+        const canFallbackToSearch =
+          isUnauthorizedError(guestTimelineError) || isTimelineNotFoundError(guestTimelineError);
+        if (!canFallbackToSearch) {
+          throw guestTimelineError;
+        }
+
+        try {
+          mediaItems = await collectFromSearch(this.guestScraper, username, maxTweets);
+        } catch (searchError) {
+          throw new Error(
+            `Timeline failed: ${errorMessage(guestTimelineError)}; search fallback failed: ${errorMessage(searchError)}`
+          );
+        }
       }
     }
 
