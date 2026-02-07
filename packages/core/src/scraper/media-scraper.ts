@@ -13,6 +13,15 @@ export interface MediaScraper {
   fetchUserMedia(input: FetchUserMediaInput): Promise<MediaItem[]>;
 }
 
+function isUnauthorizedError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("401") || message.includes("unauthorized");
+}
+
 function normalizeUsername(input: string): string {
   return input.replace(/^@/, "").trim();
 }
@@ -105,7 +114,8 @@ function dedupeMedia(items: MediaItem[]): MediaItem[] {
 }
 
 export class AgentTwitterMediaScraper implements MediaScraper {
-  private scraper = new Scraper();
+  private authenticatedScraper = new Scraper();
+  private guestScraper = new Scraper();
   private initialized = false;
 
   async initialize(session: SessionData): Promise<void> {
@@ -114,7 +124,7 @@ export class AgentTwitterMediaScraper implements MediaScraper {
     }
 
     const normalizedCookies = normalizeCookiesForTwitterRequests(session.cookies);
-    await this.scraper.setCookies(normalizedCookies);
+    await this.authenticatedScraper.setCookies(normalizedCookies);
     this.initialized = true;
   }
 
@@ -129,9 +139,20 @@ export class AgentTwitterMediaScraper implements MediaScraper {
     const allowedKinds = new Set(input.mediaKinds);
     const mediaItems: MediaItem[] = [];
 
-    for await (const tweet of this.scraper.getTweets(username, maxTweets)) {
-      mediaItems.push(...fromTweetPhotos(tweet, username));
-      mediaItems.push(...fromTweetVideos(tweet, username));
+    try {
+      for await (const tweet of this.authenticatedScraper.getTweets(username, maxTweets)) {
+        mediaItems.push(...fromTweetPhotos(tweet, username));
+        mediaItems.push(...fromTweetVideos(tweet, username));
+      }
+    } catch (authError) {
+      if (!isUnauthorizedError(authError)) {
+        throw authError;
+      }
+
+      for await (const tweet of this.guestScraper.getTweets(username, maxTweets)) {
+        mediaItems.push(...fromTweetPhotos(tweet, username));
+        mediaItems.push(...fromTweetVideos(tweet, username));
+      }
     }
 
     return dedupeMedia(mediaItems).filter((item) => allowedKinds.has(item.kind));
