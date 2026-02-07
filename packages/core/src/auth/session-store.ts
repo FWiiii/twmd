@@ -38,11 +38,12 @@ function normalizeCookieDomainValue(rawDomain: string): string {
   const trimmed = rawDomain.trim();
   const domain = trimmed.replace(/^\./, "").toLowerCase();
 
-  if (domain === "x.com" || domain.endsWith(".x.com")) {
-    return ".x.com";
-  }
-
-  if (domain === "twitter.com" || domain.endsWith(".twitter.com")) {
+  if (
+    domain === "x.com" ||
+    domain.endsWith(".x.com") ||
+    domain === "twitter.com" ||
+    domain.endsWith(".twitter.com")
+  ) {
     return ".twitter.com";
   }
 
@@ -56,38 +57,11 @@ function normalizeCookieDomainAttribute(cookie: string): string {
   });
 }
 
-function withDomain(cookie: string, domain: ".x.com" | ".twitter.com"): string {
-  if (/;\s*Domain=/i.test(cookie)) {
-    return cookie.replace(/;\s*Domain=([^;]+)/i, `; Domain=${domain}`);
-  }
-
-  return `${cookie}; Domain=${domain}`;
-}
-
-function expandCrossDomainCookies(cookie: string): string[] {
-  const domainMatch = cookie.match(/;\s*Domain=([^;]+)/i);
-  if (!domainMatch) {
-    return [cookie];
-  }
-
-  const normalizedDomain = normalizeCookieDomainValue(domainMatch[1]);
-  if (normalizedDomain === ".x.com") {
-    return [withDomain(cookie, ".x.com"), withDomain(cookie, ".twitter.com")];
-  }
-
-  if (normalizedDomain === ".twitter.com") {
-    return [withDomain(cookie, ".twitter.com"), withDomain(cookie, ".x.com")];
-  }
-
-  return [cookie];
-}
-
 export function normalizeCookiesForTwitterRequests(cookies: string[]): string[] {
   const normalized = cookies
     .map((cookie) => cookie.trim())
     .filter((cookie) => cookie.length > 0)
-    .map((cookie) => normalizeCookieDomainAttribute(cookie))
-    .flatMap((cookie) => expandCrossDomainCookies(cookie));
+    .map((cookie) => normalizeCookieDomainAttribute(cookie));
 
   return Array.from(new Set(normalized));
 }
