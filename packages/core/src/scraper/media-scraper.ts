@@ -142,6 +142,22 @@ async function collectFromTimeline(
   return mediaItems;
 }
 
+async function collectFromTimelineByUserId(
+  scraper: Scraper,
+  username: string,
+  maxTweets: number
+): Promise<MediaItem[]> {
+  const mediaItems: MediaItem[] = [];
+  const userId = await scraper.getUserIdByScreenName(username);
+
+  for await (const tweet of scraper.getTweetsByUserId(userId, maxTweets)) {
+    mediaItems.push(...fromTweetPhotos(tweet, username));
+    mediaItems.push(...fromTweetVideos(tweet, username));
+  }
+
+  return mediaItems;
+}
+
 async function collectFromSearch(
   scraper: Scraper,
   username: string,
@@ -186,27 +202,52 @@ export class AgentTwitterMediaScraper implements MediaScraper {
 
     try {
       mediaItems = await collectFromTimeline(this.authenticatedScraper, username, maxTweets);
-    } catch (authError) {
-      const canFallback = isUnauthorizedError(authError) || isTimelineNotFoundError(authError);
+    } catch (authTimelineError) {
+      const canFallback =
+        isUnauthorizedError(authTimelineError) || isTimelineNotFoundError(authTimelineError);
       if (!canFallback) {
-        throw authError;
+        throw authTimelineError;
       }
 
       try {
-        mediaItems = await collectFromTimeline(this.guestScraper, username, maxTweets);
-      } catch (guestTimelineError) {
-        const canFallbackToSearch =
-          isUnauthorizedError(guestTimelineError) || isTimelineNotFoundError(guestTimelineError);
-        if (!canFallbackToSearch) {
-          throw guestTimelineError;
+        mediaItems = await collectFromTimelineByUserId(
+          this.authenticatedScraper,
+          username,
+          maxTweets
+        );
+      } catch (authUserIdError) {
+        const canFallbackToGuest =
+          isUnauthorizedError(authUserIdError) || isTimelineNotFoundError(authUserIdError);
+        if (!canFallbackToGuest) {
+          throw authUserIdError;
         }
 
         try {
-          mediaItems = await collectFromSearch(this.guestScraper, username, maxTweets);
-        } catch (searchError) {
-          throw new Error(
-            `Timeline failed: ${errorMessage(guestTimelineError)}; search fallback failed: ${errorMessage(searchError)}`
-          );
+          mediaItems = await collectFromTimeline(this.guestScraper, username, maxTweets);
+        } catch (guestTimelineError) {
+          const canFallbackToGuestUserId =
+            isUnauthorizedError(guestTimelineError) || isTimelineNotFoundError(guestTimelineError);
+          if (!canFallbackToGuestUserId) {
+            throw guestTimelineError;
+          }
+
+          try {
+            mediaItems = await collectFromTimelineByUserId(this.guestScraper, username, maxTweets);
+          } catch (guestUserIdError) {
+            const canFallbackToSearch =
+              isUnauthorizedError(guestUserIdError) || isTimelineNotFoundError(guestUserIdError);
+            if (!canFallbackToSearch) {
+              throw guestUserIdError;
+            }
+
+            try {
+              mediaItems = await collectFromSearch(this.guestScraper, username, maxTweets);
+            } catch (searchError) {
+              throw new Error(
+                `auth timeline failed: ${errorMessage(authTimelineError)}; auth userId failed: ${errorMessage(authUserIdError)}; guest timeline failed: ${errorMessage(guestTimelineError)}; guest userId failed: ${errorMessage(guestUserIdError)}; search fallback failed: ${errorMessage(searchError)}`
+              );
+            }
+          }
         }
       }
     }
