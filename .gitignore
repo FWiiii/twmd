@@ -17,3 +17,4 @@ apps/gui/src-tauri/target
 
 # Session or runtime artifacts
 *.tmp
+test-pack/

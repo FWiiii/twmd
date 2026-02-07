@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "twmd": "dist/index.js"
+    "twmd": "dist/index.js",
+    "xd": "dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

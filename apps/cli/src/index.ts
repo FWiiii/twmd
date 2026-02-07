@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createSessionStore,
   loginWithCookies,
@@ -23,6 +25,7 @@ import {
   type OutputOptions
 } from "./output.js";
 import { createCsvReport, createJsonReport } from "./reporting.js";
+import { startGuiServer } from "./gui-server.js";
 
 const DEFAULT_MEDIA_KINDS: MediaKind[] = ["image", "video", "gif"];
 const DEFAULT_CONCURRENCY = 4;
@@ -41,6 +44,7 @@ Usage:
   twmd login --cookie-file <path> [--loose-cookie]
   twmd whoami
   twmd logout
+  twmd gui [--host 127.0.0.1] [--port 4310] [--no-open]
   twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
   twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
 
@@ -275,6 +279,69 @@ async function runLogout(output: OutputOptions): Promise<void> {
   logInfo(output, "Session cleared", { sessionPath: store.path });
 }
 
+function parseGuiPort(args: string[]): number {
+  const raw = getOptionValue(args, "--port");
+  if (raw === undefined) {
+    return 4310;
+  }
+
+  const port = Number.parseInt(raw, 10);
+  if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+    throw usageError(`Invalid value for --port: ${raw}`);
+  }
+
+  return port;
+}
+
+async function runGui(args: string[], output: OutputOptions): Promise<void> {
+  const host = (getOptionValue(args, "--host") ?? "127.0.0.1").trim();
+  if (!host) {
+    throw usageError("Invalid value for --host.");
+  }
+
+  const port = parseGuiPort(args);
+  const noOpen = hasFlag(args, "--no-open");
+
+  const currentFile = fileURLToPath(import.meta.url);
+  const cliScriptPath = resolve(dirname(currentFile), "index.js");
+
+  const handle = await startGuiServer({
+    host,
+    port,
+    cliScriptPath,
+    autoOpen: !noOpen
+  });
+
+  logInfo(output, "GUI server started", {
+    url: handle.url,
+    host: handle.host,
+    port: handle.port,
+    autoOpen: !noOpen
+  });
+
+  const closeServer = async (): Promise<void> => {
+    await handle.close();
+    logInfo(output, "GUI server stopped", {
+      url: handle.url
+    });
+  };
+
+  process.once("SIGINT", () => {
+    void closeServer().finally(() => {
+      process.exit(0);
+    });
+  });
+
+  process.once("SIGTERM", () => {
+    void closeServer().finally(() => {
+      process.exit(0);
+    });
+  });
+
+  await new Promise<void>(() => {
+  });
+}
+
 async function runDownload(args: string[], output: OutputOptions): Promise<JobResult> {
   const outputDir = getOptionValue(args, "--out");
   if (!outputDir) {
@@ -380,6 +447,11 @@ async function main(): Promise<void> {
 
     if (command === "logout") {
       await runLogout(output);
+      return;
+    }
+
+    if (command === "gui") {
+      await runGui(args, output);
       return;
     }
 

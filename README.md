@@ -29,6 +29,37 @@ pnpm install
 pnpm build
 ```
 
+## Web GUI（M3 最小版）
+
+通过 CLI 启动本地 Web GUI（默认自动打开浏览器）：
+
+```bash
+node apps/cli/dist/index.js gui
+```
+
+安装为全局命令后也可直接用：
+
+```bash
+xd gui
+```
+
+可选参数：
+- `--host`：监听地址（默认 `127.0.0.1`）
+- `--port`：监听端口（默认 `4310`）
+- `--no-open`：仅启动服务，不自动打开浏览器
+
+示例：
+
+```bash
+node apps/cli/dist/index.js gui --host 127.0.0.1 --port 4310
+```
+
+GUI 页面支持：
+- 粘贴 Cookie 文本或填写 Cookie 文件路径并保存登录
+- 配置 users/outDir/kinds/并发/重试参数
+- 启动与停止下载任务
+- 实时查看 JSON 日志输出
+
 ### Playwright 运行准备（M2.2）
 
 首次使用前，安装浏览器：
