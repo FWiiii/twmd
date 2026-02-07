@@ -104,8 +104,60 @@ function dedupeMedia(items: MediaItem[]): MediaItem[] {
   return deduped;
 }
 
+function isUnauthorizedError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.includes("401") || error.message.toLowerCase().includes("unauthorized");
+}
+
+function createXHostScraper(): Scraper {
+  return new Scraper({
+    transform: {
+      request: (input, init) => {
+        let url: URL;
+
+        if (input instanceof URL) {
+          url = new URL(input.toString());
+        } else {
+          url = new URL(String(input));
+        }
+
+        if (url.hostname === "twitter.com") {
+          url.hostname = "x.com";
+        }
+
+        if (url.hostname === "api.twitter.com") {
+          url.hostname = "api.x.com";
+        }
+
+        return [url, init];
+      }
+    }
+  });
+}
+
+async function collectMediaFromScraper(
+  scraper: Scraper,
+  input: FetchUserMediaInput
+): Promise<MediaItem[]> {
+  const username = normalizeUsername(input.username);
+  const maxTweets = input.maxTweets ?? 200;
+  const allowedKinds = new Set(input.mediaKinds);
+
+  const mediaItems: MediaItem[] = [];
+  for await (const tweet of scraper.getTweets(username, maxTweets)) {
+    mediaItems.push(...fromTweetPhotos(tweet, username));
+    mediaItems.push(...fromTweetVideos(tweet, username));
+  }
+
+  return dedupeMedia(mediaItems).filter((item) => allowedKinds.has(item.kind));
+}
+
 export class AgentTwitterMediaScraper implements MediaScraper {
-  private scraper = new Scraper();
+  private primaryScraper = new Scraper();
+  private xHostScraper = createXHostScraper();
   private initialized = false;
 
   async initialize(session: SessionData): Promise<void> {
@@ -114,7 +166,8 @@ export class AgentTwitterMediaScraper implements MediaScraper {
     }
 
     const normalizedCookies = normalizeCookiesForTwitterRequests(session.cookies);
-    await this.scraper.setCookies(normalizedCookies);
+    await this.primaryScraper.setCookies(normalizedCookies);
+    await this.xHostScraper.setCookies(normalizedCookies);
     this.initialized = true;
   }
 
@@ -123,18 +176,15 @@ export class AgentTwitterMediaScraper implements MediaScraper {
       throw new Error("Scraper not initialized.");
     }
 
-    const username = normalizeUsername(input.username);
-    const maxTweets = input.maxTweets ?? 200;
+    try {
+      return await collectMediaFromScraper(this.primaryScraper, input);
+    } catch (error) {
+      if (!isUnauthorizedError(error)) {
+        throw error;
+      }
 
-    const allowedKinds = new Set(input.mediaKinds);
-    const mediaItems: MediaItem[] = [];
-
-    for await (const tweet of this.scraper.getTweets(username, maxTweets)) {
-      mediaItems.push(...fromTweetPhotos(tweet, username));
-      mediaItems.push(...fromTweetVideos(tweet, username));
+      return collectMediaFromScraper(this.xHostScraper, input);
     }
-
-    return dedupeMedia(mediaItems).filter((item) => allowedKinds.has(item.kind));
   }
 }
 
