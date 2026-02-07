@@ -1,4 +1,4 @@
-import type { BatchJobInput, FailureDetail, JobEvent, JobResult } from "@twmd/shared";
+import type { BatchJobInput, FailureDetail, JobEvent, JobResult, SessionData } from "@twmd/shared";
 import type { SessionStore } from "../auth/session-store.js";
 import { downloadMediaBatch } from "../downloader/media-downloader.js";
 import { createMediaScraper, type MediaScraper } from "../scraper/media-scraper.js";
@@ -12,6 +12,7 @@ export interface BatchJobRunInput extends BatchJobInput {
 const DEFAULT_USER_RETRY_COUNT = 1;
 const DEFAULT_USER_DELAY_MS = 0;
 const DEFAULT_REQUEST_DELAY_MS = 0;
+const DEFAULT_ENGINE = "agent" as const;
 
 function createEvent(
   type: JobEvent["type"],
@@ -26,16 +27,28 @@ function createEvent(
   };
 }
 
+function buildAnonymousSession(): SessionData {
+  return {
+    cookies: [],
+    valid: false,
+    updatedAt: nowIso()
+  };
+}
+
 export async function *runBatchJob(
   input: BatchJobRunInput
 ): AsyncGenerator<JobEvent, JobResult, void> {
+  const engine = input.engine ?? DEFAULT_ENGINE;
   const session = await input.store.load();
-  if (!session || !session.valid || session.cookies.length === 0) {
-    throw new Error("Session is not available. Run login first.");
+
+  if (engine !== "playwright") {
+    if (!session || !session.valid || session.cookies.length === 0) {
+      throw new Error("Session is not available. Run login first.");
+    }
   }
 
-  const scraper = input.scraper ?? createMediaScraper();
-  await scraper.initialize(session);
+  const scraper = input.scraper ?? createMediaScraper(engine);
+  await scraper.initialize(session ?? buildAnonymousSession());
 
   const result: JobResult = {
     totalUsers: input.users.length,
@@ -52,7 +65,7 @@ export async function *runBatchJob(
   const userDelayMs = Math.max(0, input.userDelayMs ?? DEFAULT_USER_DELAY_MS);
   const perRequestDelayMs = Math.max(0, input.perRequestDelayMs ?? DEFAULT_REQUEST_DELAY_MS);
 
-  yield createEvent("job_started", `Batch started for ${input.users.length} user(s).`);
+  yield createEvent("job_started", `Batch started for ${input.users.length} user(s). engine=${engine}`);
 
   for (const usernameRaw of input.users) {
     const username = usernameRaw.replace(/^@/, "").trim();

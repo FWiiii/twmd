@@ -79,6 +79,18 @@ export function toCliError(error: unknown): CliError {
     return new CliError("TWMD_E_AUTH", message);
   }
 
+  if (
+    lower.includes("playwright") &&
+    (lower.includes("executable doesn't exist") ||
+      lower.includes("browser has not been found") ||
+      lower.includes("please run the following command"))
+  ) {
+    return new CliError(
+      "TWMD_E_USAGE",
+      `${message}\nHint: run 'npx playwright install chromium' before using --engine playwright.`
+    );
+  }
+
   if (isNodeLikeError(error)) {
     const code = error.code;
     if (code === "ENOENT") {

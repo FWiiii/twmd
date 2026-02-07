@@ -8,7 +8,7 @@ import {
   summarizeJobResult,
   whoami
 } from "@twmd/core";
-import type { FailureDetail, JobResult, MediaKind } from "@twmd/shared";
+import type { FailureDetail, JobResult, MediaKind, ScraperEngine } from "@twmd/shared";
 import { CliError, EXIT_CODES, toCliError } from "./error-codes.js";
 import {
   createOutputOptions,
@@ -25,6 +25,7 @@ import {
 import { createCsvReport, createJsonReport } from "./reporting.js";
 
 const DEFAULT_MEDIA_KINDS: MediaKind[] = ["image", "video", "gif"];
+const DEFAULT_ENGINE: ScraperEngine = "agent";
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_USER_RETRY_COUNT = 1;
@@ -41,8 +42,8 @@ Usage:
   twmd login --cookie-file <path> [--loose-cookie]
   twmd whoami
   twmd logout
-  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
-  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+  twmd download --users <u1,u2> --out <dir> [--engine agent|playwright] [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+  twmd download --users-file <file> --out <dir> [--engine agent|playwright] [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
 
 Global Options:
   --quiet
@@ -80,11 +81,16 @@ function printHelp(sessionPath: string, output: OutputOptions): void {
 
 function getOptionValue(args: string[], key: string): string | undefined {
   const index = args.indexOf(key);
-  if (index < 0) {
+  if (index >= 0) {
+    return args[index + 1];
+  }
+
+  const inline = args.find((item) => item.startsWith(`${key}=`));
+  if (!inline) {
     return undefined;
   }
 
-  return args[index + 1];
+  return inline.slice(key.length + 1);
 }
 
 function hasFlag(args: string[], flag: string): boolean {
@@ -117,6 +123,15 @@ function parseNonNegativeIntegerOption(args: string[], key: string): number | un
   }
 
   return parsed;
+}
+
+function parseEngine(args: string[]): ScraperEngine {
+  const raw = (getOptionValue(args, "--engine") ?? DEFAULT_ENGINE).trim();
+  if (raw === "agent" || raw === "playwright") {
+    return raw;
+  }
+
+  throw usageError(`Invalid --engine value: ${raw}. Expected agent or playwright.`);
 }
 
 function parseKinds(args: string[]): MediaKind[] {
@@ -200,11 +215,7 @@ function formatFailureDetails(details: FailureDetail[]): string {
     .join("\n");
 }
 
-async function writeReports(
-  result: JobResult,
-  args: string[],
-  output: OutputOptions
-): Promise<void> {
+async function writeReports(result: JobResult, args: string[], output: OutputOptions): Promise<void> {
   const jsonReportPath = getOptionValue(args, "--json-report");
   const csvReportPath = getOptionValue(args, "--csv-report");
   const failuresReportPath = getOptionValue(args, "--failures-report");
@@ -282,6 +293,7 @@ async function runDownload(args: string[], output: OutputOptions): Promise<JobRe
 
   const users = await parseUsers(args);
   const mediaKinds = parseKinds(args);
+  const engine = parseEngine(args);
   const maxTweetsPerUser = parsePositiveIntegerOption(args, "--max-tweets");
   const concurrency = parsePositiveIntegerOption(args, "--concurrency") ?? DEFAULT_CONCURRENCY;
   const retryCount = parseNonNegativeIntegerOption(args, "--retry") ?? DEFAULT_RETRY_COUNT;
@@ -298,12 +310,19 @@ async function runDownload(args: string[], output: OutputOptions): Promise<JobRe
     users,
     outputDir,
     mediaKinds,
+    engine,
     maxTweetsPerUser,
     concurrency,
     retryCount,
     userRetryCount,
     userDelayMs,
     perRequestDelayMs: requestDelayMs
+  });
+
+  logInfo(output, "Download job started", {
+    engine,
+    users: users.length,
+    outputDir
   });
 
   let result: JobResult | undefined;
