@@ -152,125 +152,180 @@ const HTML_PAGE = `<!doctype html>
   </div>
 
   <script>
-    const $ = (id) => document.getElementById(id);
-    const logEl = $("log");
-    const statusEl = $("status");
+    (function () {
+      function $(id) {
+        return document.getElementById(id);
+      }
 
-    function appendLog(line) {
-      logEl.textContent += line + "\n";
-      logEl.scrollTop = logEl.scrollHeight;
-    }
+      function init() {
+        var logEl = $("log");
+        var statusEl = $("status");
 
-    function setStatus(text) {
-      statusEl.textContent = "状态：" + text;
-    }
+        if (!logEl || !statusEl) {
+          console.error("[twmd-gui] missing log/status element");
+          return;
+        }
 
-    async function post(path, payload = {}) {
-      const res = await fetch(path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
+        function appendLog(line) {
+          logEl.textContent += String(line) + "\\n";
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function setStatus(text) {
+          statusEl.textContent = "状态：" + text;
+        }
+
+        async function post(path, payload) {
+          var res = await fetch(path, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload || {})
+          });
+          var data = await res.json().catch(function () {
+            return {};
+          });
+          if (!res.ok) {
+            throw new Error((data && data.error) || ("HTTP " + res.status));
+          }
+          return data;
+        }
+
+        function must(id) {
+          var element = $(id);
+          if (!element) {
+            throw new Error("页面元素缺失: #" + id);
+          }
+          return element;
+        }
+
+        try {
+          var btnLogin = must("btnLogin");
+          var btnWhoami = must("btnWhoami");
+          var btnLogout = must("btnLogout");
+          var btnStart = must("btnStart");
+          var btnStop = must("btnStop");
+          var btnClear = must("btnClear");
+
+          btnLogin.addEventListener("click", async function () {
+            try {
+              setStatus("保存登录中...");
+              var result = await post("/api/login", {
+                cookieText: must("cookieText").value,
+                cookieFilePath: must("cookieFilePath").value,
+                looseCookie: must("looseCookie").checked
+              });
+              appendLog("[login] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
+              setStatus(result.exitCode === 0 ? "登录已保存" : "登录失败");
+            } catch (error) {
+              appendLog("[login] " + (error && error.message ? error.message : String(error)));
+              setStatus("登录失败");
+            }
+          });
+
+          btnWhoami.addEventListener("click", async function () {
+            try {
+              var result = await post("/api/whoami", {});
+              appendLog("[whoami] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
+            } catch (error) {
+              appendLog("[whoami] " + (error && error.message ? error.message : String(error)));
+            }
+          });
+
+          btnLogout.addEventListener("click", async function () {
+            try {
+              var result = await post("/api/logout", {});
+              appendLog("[logout] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
+            } catch (error) {
+              appendLog("[logout] " + (error && error.message ? error.message : String(error)));
+            }
+          });
+
+          btnStart.addEventListener("click", async function () {
+            try {
+              var payload = {
+                users: must("users").value,
+                outDir: must("outDir").value,
+                kinds: must("kinds").value,
+                maxTweets: must("maxTweets").value ? Number(must("maxTweets").value) : undefined,
+                concurrency: must("concurrency").value ? Number(must("concurrency").value) : undefined,
+                retry: must("retry").value ? Number(must("retry").value) : undefined,
+                userRetry: must("userRetry").value ? Number(must("userRetry").value) : undefined,
+                userDelayMs: must("userDelayMs").value ? Number(must("userDelayMs").value) : undefined,
+                requestDelayMs: must("requestDelayMs").value
+                  ? Number(must("requestDelayMs").value)
+                  : undefined
+              };
+
+              var result = await post("/api/download", payload);
+              appendLog("[download] started pid=" + result.pid);
+              setStatus("下载进行中");
+            } catch (error) {
+              appendLog("[download] " + (error && error.message ? error.message : String(error)));
+              setStatus("下载未启动");
+            }
+          });
+
+          btnStop.addEventListener("click", async function () {
+            try {
+              var result = await post("/api/stop", {});
+              appendLog("[stop] " + result.message);
+            } catch (error) {
+              appendLog("[stop] " + (error && error.message ? error.message : String(error)));
+            }
+          });
+
+          btnClear.addEventListener("click", function () {
+            logEl.textContent = "";
+          });
+
+          if (typeof EventSource !== "undefined") {
+            var events = new EventSource("/events");
+            events.addEventListener("ready", function () {
+              setStatus("GUI 已连接");
+            });
+            events.addEventListener("log", function (event) {
+              var data = JSON.parse(event.data);
+              if (data.parsed) {
+                appendLog(JSON.stringify(data.parsed));
+              } else {
+                appendLog(data.line);
+              }
+            });
+            events.addEventListener("job", function (event) {
+              var data = JSON.parse(event.data);
+              appendLog("[job] " + JSON.stringify(data));
+              if (data.type === "finished") {
+                setStatus(data.exitCode === 0 || data.exitCode === 4 ? "任务结束" : "任务失败");
+              }
+            });
+            events.onerror = function () {
+              setStatus("与后端连接中断，等待重连...");
+            };
+          } else {
+            appendLog("[warn] 浏览器不支持 EventSource，实时日志不可用");
+          }
+
+          setStatus("GUI 已初始化");
+        } catch (error) {
+          appendLog("[fatal] " + (error && error.message ? error.message : String(error)));
+          setStatus("初始化失败");
+          console.error(error);
+        }
+      }
+
+      window.addEventListener("error", function (event) {
+        var logEl = document.getElementById("log");
+        if (logEl) {
+          logEl.textContent += "[window-error] " + event.message + "\\n";
+        }
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || ("HTTP " + res.status));
-      }
-      return data;
-    }
 
-    $("btnLogin").onclick = async () => {
-      try {
-        setStatus("保存登录中...");
-        const result = await post("/api/login", {
-          cookieText: $("cookieText").value,
-          cookieFilePath: $("cookieFilePath").value,
-          looseCookie: $("looseCookie").checked
-        });
-        appendLog("[login] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
-        setStatus(result.exitCode === 0 ? "登录已保存" : "登录失败");
-      } catch (error) {
-        appendLog("[login] " + error.message);
-        setStatus("登录失败");
-      }
-    };
-
-    $("btnWhoami").onclick = async () => {
-      try {
-        const result = await post("/api/whoami");
-        appendLog("[whoami] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
-      } catch (error) {
-        appendLog("[whoami] " + error.message);
-      }
-    };
-
-    $("btnLogout").onclick = async () => {
-      try {
-        const result = await post("/api/logout");
-        appendLog("[logout] exit=" + result.exitCode + " " + (result.stdout || result.stderr || ""));
-      } catch (error) {
-        appendLog("[logout] " + error.message);
-      }
-    };
-
-    $("btnStart").onclick = async () => {
-      try {
-        const payload = {
-          users: $("users").value,
-          outDir: $("outDir").value,
-          kinds: $("kinds").value,
-          maxTweets: $("maxTweets").value ? Number($("maxTweets").value) : undefined,
-          concurrency: $("concurrency").value ? Number($("concurrency").value) : undefined,
-          retry: $("retry").value ? Number($("retry").value) : undefined,
-          userRetry: $("userRetry").value ? Number($("userRetry").value) : undefined,
-          userDelayMs: $("userDelayMs").value ? Number($("userDelayMs").value) : undefined,
-          requestDelayMs: $("requestDelayMs").value ? Number($("requestDelayMs").value) : undefined
-        };
-
-        const result = await post("/api/download", payload);
-        appendLog("[download] started pid=" + result.pid);
-        setStatus("下载进行中");
-      } catch (error) {
-        appendLog("[download] " + error.message);
-        setStatus("下载未启动");
-      }
-    };
-
-    $("btnStop").onclick = async () => {
-      try {
-        const result = await post("/api/stop");
-        appendLog("[stop] " + result.message);
-      } catch (error) {
-        appendLog("[stop] " + error.message);
-      }
-    };
-
-    $("btnClear").onclick = () => {
-      logEl.textContent = "";
-    };
-
-    const events = new EventSource("/events");
-    events.addEventListener("ready", (event) => {
-      JSON.parse(event.data);
-      setStatus("GUI 已连接");
-    });
-    events.addEventListener("log", (event) => {
-      const data = JSON.parse(event.data);
-      if (data.parsed) {
-        appendLog(JSON.stringify(data.parsed));
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
       } else {
-        appendLog(data.line);
+        init();
       }
-    });
-    events.addEventListener("job", (event) => {
-      const data = JSON.parse(event.data);
-      appendLog("[job] " + JSON.stringify(data));
-      if (data.type === "finished") {
-        setStatus(data.exitCode === 0 || data.exitCode === 4 ? "任务结束" : "任务失败");
-      }
-    });
-    events.onerror = () => {
-      setStatus("与后端连接中断，等待重连...");
-    };
+    })();
   </script>
 </body>
 </html>`;
