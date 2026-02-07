@@ -9,6 +9,8 @@ import {
   whoami
 } from "@twmd/core";
 import type { FailureDetail, JobResult, MediaKind } from "@twmd/shared";
+import { CliError, EXIT_CODES, toCliError } from "./error-codes.js";
+import { createCsvReport, createJsonReport } from "./reporting.js";
 
 const DEFAULT_MEDIA_KINDS: MediaKind[] = ["image", "video", "gif"];
 const DEFAULT_CONCURRENCY = 4;
@@ -17,14 +19,25 @@ const DEFAULT_USER_RETRY_COUNT = 1;
 const DEFAULT_USER_DELAY_MS = 0;
 const DEFAULT_REQUEST_DELAY_MS = 0;
 
+function usageError(message: string): CliError {
+  return new CliError("TWMD_E_USAGE", message);
+}
+
 function printHelp(sessionPath: string): void {
   console.log(`
 Usage:
   twmd login --cookie-file <path> [--loose-cookie]
   twmd whoami
   twmd logout
-  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--failures-report <file>]
-  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--failures-report <file>]
+  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+
+Exit Codes:
+  0 success
+  2 usage/arguments error
+  3 auth/session error
+  4 partial success (completed with failures)
+  5 internal/runtime error
 
 Session path:
   ${sessionPath}
@@ -52,7 +65,7 @@ function parsePositiveIntegerOption(args: string[], key: string): number | undef
 
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`Invalid value for ${key}: ${raw}`);
+    throw usageError(`Invalid value for ${key}: ${raw}`);
   }
 
   return parsed;
@@ -66,7 +79,7 @@ function parseNonNegativeIntegerOption(args: string[], key: string): number | un
 
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`Invalid value for ${key}: ${raw}`);
+    throw usageError(`Invalid value for ${key}: ${raw}`);
   }
 
   return parsed;
@@ -84,13 +97,13 @@ function parseKinds(args: string[]): MediaKind[] {
     .filter(Boolean);
 
   if (items.length === 0) {
-    throw new Error("--kinds cannot be empty.");
+    throw usageError("--kinds cannot be empty.");
   }
 
   const allowed: MediaKind[] = ["image", "video", "gif"];
   const invalid = items.filter((item) => !allowed.includes(item as MediaKind));
   if (invalid.length > 0) {
-    throw new Error(`Invalid media kind(s): ${invalid.join(", ")}`);
+    throw usageError(`Invalid media kind(s): ${invalid.join(", ")}`);
   }
 
   return items as MediaKind[];
@@ -101,11 +114,11 @@ async function parseUsers(args: string[]): Promise<string[]> {
   const usersFile = getOptionValue(args, "--users-file");
 
   if (usersRaw && usersFile) {
-    throw new Error("--users and --users-file cannot be used together.");
+    throw usageError("--users and --users-file cannot be used together.");
   }
 
   if (!usersRaw && !usersFile) {
-    throw new Error("One of --users or --users-file is required.");
+    throw usageError("One of --users or --users-file is required.");
   }
 
   if (usersRaw) {
@@ -115,7 +128,7 @@ async function parseUsers(args: string[]): Promise<string[]> {
       .filter(Boolean);
 
     if (users.length === 0) {
-      throw new Error("--users does not contain any valid usernames.");
+      throw usageError("--users does not contain any valid usernames.");
     }
 
     return users;
@@ -130,7 +143,7 @@ async function parseUsers(args: string[]): Promise<string[]> {
     .map((line) => line.replace(/^@/, ""));
 
   if (users.length === 0) {
-    throw new Error("--users-file does not contain any valid usernames.");
+    throw usageError("--users-file does not contain any valid usernames.");
   }
 
   return users;
@@ -153,10 +166,33 @@ function formatFailureDetails(details: FailureDetail[]): string {
     .join("\n");
 }
 
+async function writeReports(result: JobResult, args: string[]): Promise<void> {
+  const jsonReportPath = getOptionValue(args, "--json-report");
+  const csvReportPath = getOptionValue(args, "--csv-report");
+  const failuresReportPath = getOptionValue(args, "--failures-report");
+
+  if (jsonReportPath) {
+    const jsonReport = createJsonReport(result);
+    await writeFile(jsonReportPath, JSON.stringify(jsonReport, null, 2));
+    console.log(`JSON report written: ${jsonReportPath}`);
+  }
+
+  if (csvReportPath) {
+    const csvReport = createCsvReport(result);
+    await writeFile(csvReportPath, csvReport);
+    console.log(`CSV report written: ${csvReportPath}`);
+  }
+
+  if (failuresReportPath) {
+    await writeFile(failuresReportPath, JSON.stringify(result.failureDetails, null, 2));
+    console.log(`Failure details written: ${failuresReportPath}`);
+  }
+}
+
 async function runLogin(args: string[]): Promise<void> {
   const cookieFilePath = getOptionValue(args, "--cookie-file");
   if (!cookieFilePath) {
-    throw new Error("login requires --cookie-file <path>");
+    throw usageError("login requires --cookie-file <path>");
   }
 
   const looseCookieMode = hasFlag(args, "--loose-cookie");
@@ -180,11 +216,11 @@ async function runWhoami(): Promise<void> {
   const session = await whoami(store);
 
   if (!session.loggedIn) {
-    console.log("Not logged in or session is incomplete.");
-    if (session.missingCookieNames && session.missingCookieNames.length > 0) {
-      console.log(`Missing required cookies: ${session.missingCookieNames.join(", ")}`);
-    }
-    return;
+    const missing = session.missingCookieNames?.join(", ") ?? "unknown";
+    throw new CliError(
+      "TWMD_E_AUTH",
+      `Not logged in or session is incomplete. Missing required cookies: ${missing}`
+    );
   }
 
   console.log("Logged in.");
@@ -198,10 +234,10 @@ async function runLogout(): Promise<void> {
   console.log("Session cleared.");
 }
 
-async function runDownload(args: string[]): Promise<void> {
+async function runDownload(args: string[]): Promise<JobResult> {
   const outputDir = getOptionValue(args, "--out");
   if (!outputDir) {
-    throw new Error("download requires --out <dir>");
+    throw usageError("download requires --out <dir>");
   }
 
   const users = await parseUsers(args);
@@ -215,8 +251,6 @@ async function runDownload(args: string[]): Promise<void> {
     parseNonNegativeIntegerOption(args, "--user-delay-ms") ?? DEFAULT_USER_DELAY_MS;
   const requestDelayMs =
     parseNonNegativeIntegerOption(args, "--request-delay-ms") ?? DEFAULT_REQUEST_DELAY_MS;
-  const jsonReportPath = getOptionValue(args, "--json-report");
-  const failuresReportPath = getOptionValue(args, "--failures-report");
 
   const store = createSessionStore({ appName: "tw-media-downloader" });
   const job = runBatchJob({
@@ -256,7 +290,7 @@ async function runDownload(args: string[]): Promise<void> {
   }
 
   if (!result) {
-    throw new Error("Batch job did not return a result.");
+    throw new CliError("TWMD_E_INTERNAL", "Batch job did not return a result.");
   }
 
   console.log("\nSummary");
@@ -267,15 +301,12 @@ async function runDownload(args: string[]): Promise<void> {
     console.log(formatFailureDetails(result.failureDetails));
   }
 
-  if (jsonReportPath) {
-    await writeFile(jsonReportPath, JSON.stringify(result, null, 2));
-    console.log(`JSON report written: ${jsonReportPath}`);
-  }
+  await writeReports(result, args);
+  return result;
+}
 
-  if (failuresReportPath) {
-    await writeFile(failuresReportPath, JSON.stringify(result.failureDetails, null, 2));
-    console.log(`Failure details written: ${failuresReportPath}`);
-  }
+function hasFinalFailures(result: JobResult): boolean {
+  return result.failedUsers > 0 || result.failed > 0;
 }
 
 async function main(): Promise<void> {
@@ -304,15 +335,19 @@ async function main(): Promise<void> {
     }
 
     if (command === "download") {
-      await runDownload(args);
+      const result = await runDownload(args);
+      if (hasFinalFailures(result)) {
+        console.warn("Completed with failures. See report output for details.");
+        process.exitCode = EXIT_CODES.PARTIAL_FAILURE;
+      }
       return;
     }
 
-    throw new Error(`Unknown command: ${command}`);
+    throw usageError(`Unknown command: ${command}`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Error: ${message}`);
-    process.exitCode = 1;
+    const cliError = toCliError(error);
+    console.error(`Error [${cliError.code}] (exit=${cliError.exitCode}): ${cliError.message}`);
+    process.exitCode = cliError.exitCode;
   }
 }
 
