@@ -1,5 +1,6 @@
 import { Scraper, type Tweet } from "agent-twitter-client";
 import type { MediaItem, MediaKind, SessionData } from "@twmd/shared";
+import { normalizeCookiesForTwitterRequests } from "../auth/session-store.js";
 
 export interface FetchUserMediaInput {
   username: string;
@@ -112,7 +113,8 @@ export class AgentTwitterMediaScraper implements MediaScraper {
       throw new Error("Session cookies are empty or invalid.");
     }
 
-    await this.scraper.setCookies(session.cookies);
+    const normalizedCookies = normalizeCookiesForTwitterRequests(session.cookies);
+    await this.scraper.setCookies(normalizedCookies);
     this.initialized = true;
   }
 

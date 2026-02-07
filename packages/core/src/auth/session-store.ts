@@ -34,6 +34,37 @@ export interface WhoAmIResult {
 
 const DEFAULT_REQUIRED_COOKIE_NAMES = ["auth_token", "ct0"];
 
+function normalizeCookieDomainValue(rawDomain: string): string {
+  const trimmed = rawDomain.trim();
+  const domain = trimmed.replace(/^\./, "").toLowerCase();
+
+  if (domain === "x.com" || domain.endsWith(".x.com")) {
+    return ".twitter.com";
+  }
+
+  if (domain === "twitter.com" || domain.endsWith(".twitter.com")) {
+    return ".twitter.com";
+  }
+
+  return trimmed;
+}
+
+function normalizeCookieDomainAttribute(cookie: string): string {
+  return cookie.replace(/;\s*Domain=([^;]+)/i, (_full, domainPart: string) => {
+    const normalized = normalizeCookieDomainValue(domainPart);
+    return `; Domain=${normalized}`;
+  });
+}
+
+export function normalizeCookiesForTwitterRequests(cookies: string[]): string[] {
+  const normalized = cookies
+    .map((cookie) => cookie.trim())
+    .filter((cookie) => cookie.length > 0)
+    .map((cookie) => normalizeCookieDomainAttribute(cookie));
+
+  return Array.from(new Set(normalized));
+}
+
 function parseCookieHeader(cookieHeader: string): string[] {
   return cookieHeader
     .split(";")
@@ -45,23 +76,33 @@ function parseCookieLines(cookieText: string): string[] {
   return cookieText
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#") && line.includes("="));
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        (!line.startsWith("#") || line.startsWith("#HttpOnly_")) &&
+        line.includes("=")
+    )
+    .map((line) => line.replace(/^#HttpOnly_/, ""));
 }
 
 function parseNetscapeCookies(cookieText: string): string[] {
   const lines = cookieText
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"));
+    .filter(
+      (line) => line.length > 0 && (!line.startsWith("#") || line.startsWith("#HttpOnly_"))
+    );
 
   const cookies: string[] = [];
   for (const line of lines) {
-    const parts = line.split("\t");
+    const isHttpOnly = line.startsWith("#HttpOnly_");
+    const sanitizedLine = line.replace(/^#HttpOnly_/, "");
+    const parts = sanitizedLine.split("\t");
     if (parts.length < 7) {
       continue;
     }
 
-    const domain = parts[0];
+    const domain = normalizeCookieDomainValue(parts[0]);
     const path = parts[2] || "/";
     const secure = parts[3]?.toUpperCase() === "TRUE";
     const name = parts[5];
@@ -72,7 +113,8 @@ function parseNetscapeCookies(cookieText: string): string[] {
     }
 
     const securePart = secure ? "; Secure" : "";
-    cookies.push(`${name}=${value}; Domain=${domain}; Path=${path}${securePart}`);
+    const httpOnlyPart = isHttpOnly ? "; HttpOnly" : "";
+    cookies.push(`${name}=${value}; Domain=${domain}; Path=${path}${securePart}${httpOnlyPart}`);
   }
 
   return cookies;
@@ -87,16 +129,16 @@ export function parseCookies(cookieText: string): string[] {
   if (text.includes("\t")) {
     const parsed = parseNetscapeCookies(text);
     if (parsed.length > 0) {
-      return parsed;
+      return normalizeCookiesForTwitterRequests(parsed);
     }
   }
 
   const asLines = parseCookieLines(text);
   if (asLines.length > 1) {
-    return asLines;
+    return normalizeCookiesForTwitterRequests(asLines);
   }
 
-  return parseCookieHeader(text);
+  return normalizeCookiesForTwitterRequests(parseCookieHeader(text));
 }
 
 function extractCookieName(cookie: string): string | null {
@@ -175,7 +217,7 @@ export function createSessionStore(options: SessionStoreOptions): SessionStore {
 }
 
 export async function loginWithCookies(input: LoginWithCookiesInput): Promise<SessionData> {
-  const cookies = parseCookies(input.cookieText);
+  const cookies = normalizeCookiesForTwitterRequests(parseCookies(input.cookieText));
   if (cookies.length === 0) {
     throw new Error("No valid cookie found from input.");
   }
