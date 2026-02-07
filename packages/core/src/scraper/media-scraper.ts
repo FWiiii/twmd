@@ -113,6 +113,26 @@ function dedupeMedia(items: MediaItem[]): MediaItem[] {
   return deduped;
 }
 
+function isOwnOriginalTweet(tweet: Tweet, username: string): boolean {
+  const target = normalizeUsername(username).toLowerCase();
+  const tweetUser = (tweet.username ?? "").replace(/^@/, "").toLowerCase();
+
+  if (!tweetUser || tweetUser !== target) {
+    return false;
+  }
+
+  if (tweet.isRetweet || Boolean(tweet.retweetedStatus) || Boolean(tweet.retweetedStatusId)) {
+    return false;
+  }
+
+  const text = (tweet.text ?? "").trim().toLowerCase();
+  if (text.startsWith("rt @")) {
+    return false;
+  }
+
+  return true;
+}
+
 function isUnauthorizedError(error: unknown): boolean {
   const message = errorMessage(error).toLowerCase();
   return message.includes("401") || message.includes("unauthorized");
@@ -136,6 +156,10 @@ async function collectFromTimeline(
   const mediaItems: MediaItem[] = [];
 
   for await (const tweet of scraper.getTweets(username, maxTweets)) {
+    if (!isOwnOriginalTweet(tweet, username)) {
+      continue;
+    }
+
     mediaItems.push(...fromTweetPhotos(tweet, username));
     mediaItems.push(...fromTweetVideos(tweet, username));
   }
@@ -152,6 +176,10 @@ async function collectFromTimelineByUserId(
   const userId = await scraper.getUserIdByScreenName(username);
 
   for await (const tweet of scraper.getTweetsByUserId(userId, maxTweets)) {
+    if (!isOwnOriginalTweet(tweet, username)) {
+      continue;
+    }
+
     mediaItems.push(...fromTweetPhotos(tweet, username));
     mediaItems.push(...fromTweetVideos(tweet, username));
   }
@@ -165,9 +193,13 @@ async function collectFromSearch(
   maxTweets: number
 ): Promise<MediaItem[]> {
   const mediaItems: MediaItem[] = [];
-  const query = `from:${username} filter:media`;
+  const query = `from:${username} filter:media -filter:retweets`;
 
   for await (const tweet of scraper.searchTweets(query, maxTweets, SearchMode.Latest)) {
+    if (!isOwnOriginalTweet(tweet, username)) {
+      continue;
+    }
+
     mediaItems.push(...fromTweetPhotos(tweet, username));
     mediaItems.push(...fromTweetVideos(tweet, username));
   }
@@ -331,8 +363,13 @@ function parseCookieString(cookie: string): Array<{
   }));
 }
 
-async function extractMediaFromPage(page: Page, maxTweets: number): Promise<DomMediaCandidate[]> {
-  const extracted = await page.evaluate((limit) => {
+async function extractMediaFromPage(
+  page: Page,
+  maxTweets: number,
+  targetUsername: string
+): Promise<DomMediaCandidate[]> {
+  const extracted = await page.evaluate(
+    ({ limit, target }) => {
     const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
     const candidates: Array<{
       id: string;
@@ -344,17 +381,55 @@ async function extractMediaFromPage(page: Page, maxTweets: number): Promise<DomM
     }> = [];
 
     const seenTweetIds = new Set<string>();
+    const targetUsername = target.toLowerCase();
 
-    for (const article of articles) {
-      const statusLink = article.querySelector('a[href*="/status/"]');
-      const href = statusLink?.getAttribute("href") ?? "";
+    const parseStatusHref = (href: string): { username: string; tweetId: string } | null => {
       const match = href.match(/\/([^/]+)\/status\/(\d+)/);
       if (!match) {
+        return null;
+      }
+
+      return {
+        username: match[1].replace(/^@/, "").toLowerCase(),
+        tweetId: match[2]
+      };
+    };
+
+    for (const article of articles) {
+      const socialContextText =
+        article.querySelector('div[data-testid="socialContext"]')?.textContent?.toLowerCase() ?? "";
+      if (
+        socialContextText.includes("retweeted") ||
+        socialContextText.includes("reposted") ||
+        socialContextText.includes("转推")
+      ) {
         continue;
       }
 
-      const username = match[1];
-      const tweetId = match[2];
+      const statusHrefs = Array.from(article.querySelectorAll('a[href*="/status/"]'))
+        .map((anchor) => anchor.getAttribute("href") ?? "")
+        .filter(Boolean);
+
+      const statusMatches = statusHrefs
+        .map((href) => parseStatusHref(href))
+        .filter((item): item is { username: string; tweetId: string } => item !== null);
+
+      if (statusMatches.length === 0) {
+        continue;
+      }
+
+      const primary = statusMatches[0];
+      if (primary.username !== targetUsername) {
+        continue;
+      }
+
+      const hasForeignStatus = statusMatches.some((item) => item.username !== targetUsername);
+      if (hasForeignStatus) {
+        continue;
+      }
+
+      const username = primary.username;
+      const tweetId = primary.tweetId;
       if (!seenTweetIds.has(tweetId)) {
         seenTweetIds.add(tweetId);
       }
@@ -368,6 +443,14 @@ async function extractMediaFromPage(page: Page, maxTweets: number): Promise<DomM
       const imageElements = Array.from(article.querySelectorAll('img[src]'));
       let imageIndex = 0;
       for (const imageElement of imageElements) {
+        const closestStatusLink = imageElement.closest('a[href*="/status/"]');
+        if (closestStatusLink) {
+          const closestMatch = parseStatusHref(closestStatusLink.getAttribute("href") ?? "");
+          if (closestMatch && closestMatch.username !== targetUsername) {
+            continue;
+          }
+        }
+
         const src = imageElement.getAttribute("src") ?? "";
         if (!src) {
           continue;
@@ -391,6 +474,14 @@ async function extractMediaFromPage(page: Page, maxTweets: number): Promise<DomM
       const videoElements = Array.from(article.querySelectorAll('video[src], video source[src]'));
       let videoIndex = 0;
       for (const videoElement of videoElements) {
+        const closestStatusLink = videoElement.closest('a[href*="/status/"]');
+        if (closestStatusLink) {
+          const closestMatch = parseStatusHref(closestStatusLink.getAttribute("href") ?? "");
+          if (closestMatch && closestMatch.username !== targetUsername) {
+            continue;
+          }
+        }
+
         const src = videoElement.getAttribute("src") ?? "";
         if (!src) {
           continue;
@@ -415,8 +506,10 @@ async function extractMediaFromPage(page: Page, maxTweets: number): Promise<DomM
       }
     }
 
-    return candidates;
-  }, maxTweets);
+      return candidates;
+    },
+    { limit: maxTweets, target: normalizeUsername(targetUsername).toLowerCase() }
+  );
 
   return extracted;
 }
@@ -453,7 +546,11 @@ class PlaywrightMediaScraper implements MediaScraper {
     });
   }
 
-  private async collectFromUrl(url: string, maxTweets: number): Promise<DomMediaCandidate[]> {
+  private async collectFromUrl(
+    url: string,
+    maxTweets: number,
+    username: string
+  ): Promise<DomMediaCandidate[]> {
     if (!this.page) {
       throw new Error("Playwright page is not initialized.");
     }
@@ -466,7 +563,7 @@ class PlaywrightMediaScraper implements MediaScraper {
 
     for (let round = 0; round < 14; round += 1) {
       const before = collected.size;
-      const batch = await extractMediaFromPage(this.page, maxTweets);
+      const batch = await extractMediaFromPage(this.page, maxTweets, username);
 
       for (const item of batch) {
         const key = `${item.tweetId}:${item.kind}:${item.url}`;
@@ -512,7 +609,7 @@ class PlaywrightMediaScraper implements MediaScraper {
     const errors: string[] = [];
     for (const url of urls) {
       try {
-        const candidates = await this.collectFromUrl(url, maxTweets);
+        const candidates = await this.collectFromUrl(url, maxTweets, username);
         if (candidates.length === 0) {
           continue;
         }

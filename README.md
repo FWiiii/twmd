@@ -96,6 +96,7 @@ node apps/cli/dist/index.js download \
 
 参数说明：
 - `--engine`：抓取引擎（`agent` / `playwright`）
+- 默认仅下载用户本人原创媒体（排除转推/转发内容）
 - `--retry`：单个媒体下载失败后的重试次数（可为 0）
 - `--user-retry`：单个用户任务失败后的重试次数（可为 0）
 - `--user-delay-ms`：每个用户任务之间的固定延迟
