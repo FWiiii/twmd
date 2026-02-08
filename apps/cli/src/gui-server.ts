@@ -208,304 +208,268 @@ const HTML_PAGE = `<!doctype html>
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>TWMD Web GUI</h1>
-    <p class="desc">先登录 cookie，再填写用户并开始下载。</p>
+  <div id="root"></div>
 
-    <section class="card">
-      <h2>1) 登录</h2>
-      <div class="row">
-        <label for="cookieText">Cookie 文本（推荐）</label>
-        <textarea id="cookieText" placeholder="粘贴 cookie 文本"></textarea>
-      </div>
-      <div class="row">
-        <label for="cookieFilePath">或 Cookie 文件路径</label>
-        <input id="cookieFilePath" type="text" placeholder="例如 /Users/you/cookies.txt" />
-      </div>
-      <div class="row">
-        <label><input id="looseCookie" type="checkbox" style="width:auto;margin-right:6px;" />关闭严格校验</label>
-      </div>
-      <div class="actions">
-        <button class="primary" id="btnLogin">保存登录</button>
-        <button id="btnWhoami">检查登录</button>
-        <button id="btnLogout">退出登录</button>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>2) 下载</h2>
-      <div class="row">
-        <label for="users">用户（逗号/空格/换行）</label>
-        <textarea id="users" placeholder="nasa"></textarea>
-      </div>
-      <div class="grid2">
-        <div class="row">
-          <label for="outDir">输出目录</label>
-          <input id="outDir" type="text" value="./downloads" />
-        </div>
-        <div class="row">
-          <label for="kinds">媒体类型</label>
-          <input id="kinds" type="text" value="image,video,gif" />
-        </div>
-      </div>
-
-      <details>
-        <summary>高级参数（可选）</summary>
-        <div class="grid2">
-          <div class="row">
-            <label for="engine">抓取引擎</label>
-            <select id="engine">
-              <option value="graphql" selected>graphql（API 抓取）</option>
-              <option value="playwright">playwright（仅页面抓取）</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="maxTweets">最大推文数</label>
-            <input id="maxTweets" type="number" min="1" placeholder="50" />
-          </div>
-          <div class="row">
-            <label for="concurrency">并发</label>
-            <input id="concurrency" type="number" min="1" value="4" />
-          </div>
-          <div class="row">
-            <label for="retry">媒体重试</label>
-            <input id="retry" type="number" min="0" value="2" />
-          </div>
-          <div class="row">
-            <label for="userRetry">用户重试</label>
-            <input id="userRetry" type="number" min="0" value="1" />
-          </div>
-          <div class="row">
-            <label for="userDelayMs">用户间隔(ms)</label>
-            <input id="userDelayMs" type="number" min="0" value="0" />
-          </div>
-          <div class="row">
-            <label for="requestDelayMs">请求间隔(ms)</label>
-            <input id="requestDelayMs" type="number" min="0" value="0" />
-          </div>
-        </div>
-      </details>
-
-      <div class="actions" style="margin-top:10px;">
-        <button class="primary" id="btnStart">开始下载</button>
-        <button class="warn" id="btnStop">停止任务</button>
-      </div>
-    </section>
-
-    <section class="log">
-      <div class="log-head">
-        <strong>实时日志</strong>
-        <button id="btnClear">清空</button>
-      </div>
-      <pre id="log"></pre>
-      <p class="status" id="status">状态：准备就绪</p>
-    </section>
-  </div>
-
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script>
     (function () {
-      function $(id) {
-        return document.getElementById(id);
+      var ReactRef = window.React;
+      var ReactDOMRef = window.ReactDOM;
+
+      if (!ReactRef || !ReactDOMRef) {
+        document.body.innerHTML =
+          '<div class="wrap"><section class="card"><h2>GUI 加载失败</h2><p class="status">无法加载 React 运行时，请检查网络后刷新页面。</p></section></div>';
+        return;
       }
 
-      function init() {
-        var logEl = $("log");
-        var statusEl = $("status");
+      var h = ReactRef.createElement;
+      var useEffect = ReactRef.useEffect;
+      var useRef = ReactRef.useRef;
+      var useState = ReactRef.useState;
 
-        if (!logEl || !statusEl) {
-          console.error("[twmd-gui] missing log/status element");
-          return;
+      function toTimeLabel(ts) {
+        if (!ts) {
+          return "";
         }
 
-        function appendLog(line) {
-          logEl.textContent += String(line) + "\\n";
-          logEl.scrollTop = logEl.scrollHeight;
+        var date = new Date(ts);
+        if (Number.isNaN(date.getTime())) {
+          return "";
         }
 
-        function setStatus(text) {
-          statusEl.textContent = "状态：" + text;
+        return date.toLocaleTimeString("zh-CN", { hour12: false });
+      }
+
+      function safeParseJson(text) {
+        if (!text) {
+          return null;
         }
 
-        async function post(path, payload) {
-          var res = await fetch(path, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload || {})
-          });
-          var data = await res.json().catch(function () {
-            return {};
-          });
-          if (!res.ok) {
-            throw new Error((data && data.error) || ("HTTP " + res.status));
-          }
-          return data;
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
+        }
+      }
+
+      function withTimePrefix(text, ts) {
+        var t = toTimeLabel(ts);
+        if (!t) {
+          return text;
         }
 
-        function must(id) {
-          var element = $(id);
-          if (!element) {
-            throw new Error("页面元素缺失: #" + id);
-          }
-          return element;
-        }
+        return "[" + t + "] " + text;
+      }
 
-        function toTimeLabel(ts) {
-          if (!ts) {
-            return "";
-          }
-
-          var date = new Date(ts);
-          if (Number.isNaN(date.getTime())) {
-            return "";
-          }
-
-          return date.toLocaleTimeString("zh-CN", { hour12: false });
-        }
-
-        function safeParseJson(text) {
-          if (!text) {
-            return null;
-          }
-
-          try {
-            return JSON.parse(text);
-          } catch {
-            return null;
-          }
-        }
-
-        function withTimePrefix(text, ts) {
-          var t = toTimeLabel(ts);
-          if (!t) {
-            return text;
-          }
-
-          return "[" + t + "] " + text;
-        }
-
-        function formatParsedLog(parsed, fallbackLine) {
-          if (!parsed || typeof parsed !== "object") {
-            return fallbackLine || "";
-          }
-
-          var message = parsed.message || "";
-          var event = parsed.event;
-
-          if (message === "job_event" && event) {
-            if (event.type === "job_started") {
-              return withTimePrefix("任务开始", event.timestamp || parsed.ts);
-            }
-
-            if (event.type === "user_started") {
-              return withTimePrefix("开始处理 @" + (event.username || "unknown"), event.timestamp || parsed.ts);
-            }
-
-            if (event.type === "media_found") {
-              return withTimePrefix("@" + (event.username || "unknown") + " " + event.message, event.timestamp || parsed.ts);
-            }
-
-            if (event.type === "download_progress" && event.progress) {
-              return withTimePrefix(
-                "@" +
-                  (event.username || "unknown") +
-                  " 下载进度：下载 " +
-                  event.progress.downloaded +
-                  "/" +
-                  event.progress.total +
-                  "，失败 " +
-                  event.progress.failed +
-                  "，跳过 " +
-                  event.progress.skipped,
-                event.timestamp || parsed.ts
-              );
-            }
-
-            if (event.type === "user_finished") {
-              return withTimePrefix("@" + (event.username || "unknown") + " 处理完成", event.timestamp || parsed.ts);
-            }
-
-            if (event.type === "job_finished" && event.progress) {
-              return withTimePrefix(
-                "任务完成：总 " +
-                  event.progress.total +
-                  "，下载 " +
-                  event.progress.downloaded +
-                  "，失败 " +
-                  event.progress.failed +
-                  "，跳过 " +
-                  event.progress.skipped,
-                event.timestamp || parsed.ts
-              );
-            }
-
-            if (event.type === "warning") {
-              return withTimePrefix("警告：" + event.message, event.timestamp || parsed.ts);
-            }
-
-            if (event.type === "error") {
-              return withTimePrefix("错误：" + event.message, event.timestamp || parsed.ts);
-            }
-
-            return withTimePrefix(event.message || "任务事件", event.timestamp || parsed.ts);
-          }
-
-          if (message === "job_summary" && parsed.report && parsed.report.summary) {
-            var s = parsed.report.summary;
-            return withTimePrefix(
-              "汇总：用户成功 " +
-                s.succeededUsers +
-                "/" +
-                s.totalUsers +
-                "，媒体下载 " +
-                s.downloaded +
-                "/" +
-                s.totalMedia +
-                "，失败 " +
-                s.failed +
-                "，跳过 " +
-                s.skipped,
-              parsed.ts
-            );
-          }
-
-          if (message === "job_failures") {
-            var count = Array.isArray(parsed.failures) ? parsed.failures.length : 0;
-            return withTimePrefix("失败明细：" + count + " 条", parsed.ts);
-          }
-
-          if (message === "Download job started") {
-            return withTimePrefix(
-              "已开始下载：用户 " + (parsed.users || "?") + " 个，目录 " + (parsed.outputDir || ""),
-              parsed.ts
-            );
-          }
-
-          if (message === "Login session saved") {
-            return withTimePrefix("登录已保存（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
-          }
-
-          if (message === "Logged in") {
-            return withTimePrefix("当前已登录（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
-          }
-
-          if (message === "Session cleared") {
-            return withTimePrefix("本地会话已清理", parsed.ts);
-          }
-
-          if (typeof message === "string" && message.indexOf("Error [") === 0) {
-            return withTimePrefix("错误：" + (parsed.detail || message), parsed.ts);
-          }
-
-          if (message) {
-            return withTimePrefix(String(message), parsed.ts);
-          }
-
+      function formatParsedLog(parsed, fallbackLine) {
+        if (!parsed || typeof parsed !== "object") {
           return fallbackLine || "";
         }
 
+        var message = parsed.message || "";
+        var event = parsed.event;
+
+        if (message === "job_event" && event) {
+          if (event.type === "job_started") {
+            return withTimePrefix("任务开始", event.timestamp || parsed.ts);
+          }
+
+          if (event.type === "user_started") {
+            return withTimePrefix("开始处理 @" + (event.username || "unknown"), event.timestamp || parsed.ts);
+          }
+
+          if (event.type === "media_found") {
+            return withTimePrefix("@" + (event.username || "unknown") + " " + event.message, event.timestamp || parsed.ts);
+          }
+
+          if (event.type === "download_progress" && event.progress) {
+            return withTimePrefix(
+              "@" +
+                (event.username || "unknown") +
+                " 下载进度：下载 " +
+                event.progress.downloaded +
+                "/" +
+                event.progress.total +
+                "，失败 " +
+                event.progress.failed +
+                "，跳过 " +
+                event.progress.skipped,
+              event.timestamp || parsed.ts
+            );
+          }
+
+          if (event.type === "user_finished") {
+            return withTimePrefix("@" + (event.username || "unknown") + " 处理完成", event.timestamp || parsed.ts);
+          }
+
+          if (event.type === "job_finished" && event.progress) {
+            return withTimePrefix(
+              "任务完成：总 " +
+                event.progress.total +
+                "，下载 " +
+                event.progress.downloaded +
+                "，失败 " +
+                event.progress.failed +
+                "，跳过 " +
+                event.progress.skipped,
+              event.timestamp || parsed.ts
+            );
+          }
+
+          if (event.type === "warning") {
+            return withTimePrefix("警告：" + event.message, event.timestamp || parsed.ts);
+          }
+
+          if (event.type === "error") {
+            return withTimePrefix("错误：" + event.message, event.timestamp || parsed.ts);
+          }
+
+          return withTimePrefix(event.message || "任务事件", event.timestamp || parsed.ts);
+        }
+
+        if (message === "job_summary" && parsed.report && parsed.report.summary) {
+          var s = parsed.report.summary;
+          return withTimePrefix(
+            "汇总：用户成功 " +
+              s.succeededUsers +
+              "/" +
+              s.totalUsers +
+              "，媒体下载 " +
+              s.downloaded +
+              "/" +
+              s.totalMedia +
+              "，失败 " +
+              s.failed +
+              "，跳过 " +
+              s.skipped,
+            parsed.ts
+          );
+        }
+
+        if (message === "job_failures") {
+          var count = Array.isArray(parsed.failures) ? parsed.failures.length : 0;
+          return withTimePrefix("失败明细：" + count + " 条", parsed.ts);
+        }
+
+        if (message === "Download job started") {
+          return withTimePrefix(
+            "已开始下载：用户 " + (parsed.users || "?") + " 个，目录 " + (parsed.outputDir || ""),
+            parsed.ts
+          );
+        }
+
+        if (message === "Login session saved") {
+          return withTimePrefix("登录已保存（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
+        }
+
+        if (message === "Logged in") {
+          return withTimePrefix("当前已登录（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
+        }
+
+        if (message === "Session cleared") {
+          return withTimePrefix("本地会话已清理", parsed.ts);
+        }
+
+        if (typeof message === "string" && message.indexOf("Error [") === 0) {
+          return withTimePrefix("错误：" + (parsed.detail || message), parsed.ts);
+        }
+
+        if (message) {
+          return withTimePrefix(String(message), parsed.ts);
+        }
+
+        return fallbackLine || "";
+      }
+
+      async function post(path, payload) {
+        var res = await fetch(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload || {})
+        });
+        var data = await res.json().catch(function () {
+          return {};
+        });
+        if (!res.ok) {
+          throw new Error((data && data.error) || ("HTTP " + res.status));
+        }
+        return data;
+      }
+
+      function toOptionalNumber(value) {
+        if (value === undefined || value === null || value === "") {
+          return undefined;
+        }
+
+        var parsed = Number(value);
+        if (!Number.isFinite(parsed)) {
+          return undefined;
+        }
+
+        return parsed;
+      }
+
+      function App() {
+        var _useState = useState(""),
+          cookieText = _useState[0],
+          setCookieText = _useState[1];
+        var _useState2 = useState(""),
+          cookieFilePath = _useState2[0],
+          setCookieFilePath = _useState2[1];
+        var _useState3 = useState(false),
+          looseCookie = _useState3[0],
+          setLooseCookie = _useState3[1];
+        var _useState4 = useState(""),
+          users = _useState4[0],
+          setUsers = _useState4[1];
+        var _useState5 = useState("./downloads"),
+          outDir = _useState5[0],
+          setOutDir = _useState5[1];
+        var _useState6 = useState("image,video,gif"),
+          kinds = _useState6[0],
+          setKinds = _useState6[1];
+        var _useState7 = useState("graphql"),
+          engine = _useState7[0],
+          setEngine = _useState7[1];
+        var _useState8 = useState(""),
+          maxTweets = _useState8[0],
+          setMaxTweets = _useState8[1];
+        var _useState9 = useState("4"),
+          concurrency = _useState9[0],
+          setConcurrency = _useState9[1];
+        var _useState10 = useState("2"),
+          retry = _useState10[0],
+          setRetry = _useState10[1];
+        var _useState11 = useState("1"),
+          userRetry = _useState11[0],
+          setUserRetry = _useState11[1];
+        var _useState12 = useState("0"),
+          userDelayMs = _useState12[0],
+          setUserDelayMs = _useState12[1];
+        var _useState13 = useState("0"),
+          requestDelayMs = _useState13[0],
+          setRequestDelayMs = _useState13[1];
+        var _useState14 = useState(""),
+          logText = _useState14[0],
+          setLogText = _useState14[1];
+        var _useState15 = useState("准备就绪"),
+          status = _useState15[0],
+          setStatus = _useState15[1];
+
+        var logRef = useRef(null);
+        var appendLogRef = useRef(function () {
+        });
+
+        appendLogRef.current = function (line) {
+          setLogText(function (prev) {
+            return prev + String(line) + "\\n";
+          });
+        };
+
         function appendCommandResult(prefix, result) {
           var ok = result.exitCode === 0;
-          appendLog("[" + prefix + "] " + (ok ? "成功" : "失败") + " (exit=" + result.exitCode + ")");
+          appendLogRef.current("[" + prefix + "] " + (ok ? "成功" : "失败") + " (exit=" + result.exitCode + ")");
 
           var outputLines = [];
           if (result.stdout) {
@@ -522,147 +486,471 @@ const HTML_PAGE = `<!doctype html>
             }
 
             var parsed = safeParseJson(rawLine);
-            appendLog("  " + formatParsedLog(parsed, rawLine));
+            appendLogRef.current("  " + formatParsedLog(parsed, rawLine));
           }
         }
 
-        try {
-          var btnLogin = must("btnLogin");
-          var btnWhoami = must("btnWhoami");
-          var btnLogout = must("btnLogout");
-          var btnStart = must("btnStart");
-          var btnStop = must("btnStop");
-          var btnClear = must("btnClear");
+        useEffect(function () {
+          if (logRef.current) {
+            logRef.current.scrollTop = logRef.current.scrollHeight;
+          }
+        }, [logText]);
 
-          btnLogin.addEventListener("click", async function () {
-            try {
-              setStatus("保存登录中...");
-              var result = await post("/api/login", {
-                cookieText: must("cookieText").value,
-                cookieFilePath: must("cookieFilePath").value,
-                looseCookie: must("looseCookie").checked
+        useEffect(function () {
+          function onWindowError(event) {
+            appendLogRef.current("[window-error] " + event.message);
+          }
+
+          window.addEventListener("error", onWindowError);
+          return function () {
+            window.removeEventListener("error", onWindowError);
+          };
+        }, []);
+
+        useEffect(function () {
+          var events = null;
+
+          try {
+            if (typeof EventSource !== "undefined") {
+              events = new EventSource("/events");
+              events.addEventListener("ready", function () {
+                setStatus("GUI 已连接");
               });
-              appendCommandResult("login", result);
-              setStatus(result.exitCode === 0 ? "登录已保存" : "登录失败");
-            } catch (error) {
-              appendLog("[login] " + (error && error.message ? error.message : String(error)));
-              setStatus("登录失败");
-            }
-          });
+              events.addEventListener("log", function (event) {
+                var data = safeParseJson(event.data) || {};
+                if (data.parsed) {
+                  appendLogRef.current(formatParsedLog(data.parsed, data.line));
+                  return;
+                }
 
-          btnWhoami.addEventListener("click", async function () {
-            try {
-              var result = await post("/api/whoami", {});
-              appendCommandResult("whoami", result);
-            } catch (error) {
-              appendLog("[whoami] " + (error && error.message ? error.message : String(error)));
-            }
-          });
+                if (typeof data.line === "string") {
+                  appendLogRef.current(data.line);
+                }
+              });
+              events.addEventListener("job", function (event) {
+                var data = safeParseJson(event.data) || {};
 
-          btnLogout.addEventListener("click", async function () {
-            try {
-              var result = await post("/api/logout", {});
-              appendCommandResult("logout", result);
-            } catch (error) {
-              appendLog("[logout] " + (error && error.message ? error.message : String(error)));
-            }
-          });
+                if (data.type === "started") {
+                  appendLogRef.current("任务已启动（用户 " + (data.users || "?") + " 个，目录 " + (data.outDir || "") + "）");
+                } else if (data.type === "finished") {
+                  appendLogRef.current("任务已结束（exit=" + data.exitCode + (data.signal ? ", signal=" + data.signal : "") + "）");
+                } else if (data.type === "error") {
+                  appendLogRef.current("任务异常：" + (data.message || "未知错误"));
+                } else {
+                  appendLogRef.current("[job] " + JSON.stringify(data));
+                }
 
-          btnStart.addEventListener("click", async function () {
-            try {
-              var payload = {
-                users: must("users").value,
-                outDir: must("outDir").value,
-                engine: must("engine").value,
-                kinds: must("kinds").value,
-                maxTweets: must("maxTweets").value ? Number(must("maxTweets").value) : undefined,
-                concurrency: must("concurrency").value ? Number(must("concurrency").value) : undefined,
-                retry: must("retry").value ? Number(must("retry").value) : undefined,
-                userRetry: must("userRetry").value ? Number(must("userRetry").value) : undefined,
-                userDelayMs: must("userDelayMs").value ? Number(must("userDelayMs").value) : undefined,
-                requestDelayMs: must("requestDelayMs").value
-                  ? Number(must("requestDelayMs").value)
-                  : undefined
+                if (data.type === "finished") {
+                  setStatus(data.exitCode === 0 || data.exitCode === 4 ? "任务结束" : "任务失败");
+                }
+              });
+              events.onerror = function () {
+                setStatus("与后端连接中断，等待重连...");
               };
-
-              var result = await post("/api/download", payload);
-              appendLog("[download] started pid=" + result.pid);
-              setStatus("下载进行中");
-            } catch (error) {
-              appendLog("[download] " + (error && error.message ? error.message : String(error)));
-              setStatus("下载未启动");
+            } else {
+              appendLogRef.current("[warn] 浏览器不支持 EventSource，实时日志不可用");
             }
-          });
 
-          btnStop.addEventListener("click", async function () {
-            try {
-              var result = await post("/api/stop", {});
-              appendLog("[stop] " + result.message);
-            } catch (error) {
-              appendLog("[stop] " + (error && error.message ? error.message : String(error)));
-            }
-          });
-
-          btnClear.addEventListener("click", function () {
-            logEl.textContent = "";
-          });
-
-          if (typeof EventSource !== "undefined") {
-            var events = new EventSource("/events");
-            events.addEventListener("ready", function () {
-              setStatus("GUI 已连接");
-            });
-            events.addEventListener("log", function (event) {
-              var data = JSON.parse(event.data);
-              if (data.parsed) {
-                appendLog(formatParsedLog(data.parsed, data.line));
-              } else {
-                appendLog(data.line);
-              }
-            });
-            events.addEventListener("job", function (event) {
-              var data = JSON.parse(event.data);
-
-              if (data.type === "started") {
-                appendLog("任务已启动（用户 " + (data.users || "?") + " 个，目录 " + (data.outDir || "") + "）");
-              } else if (data.type === "finished") {
-                appendLog("任务已结束（exit=" + data.exitCode + (data.signal ? ", signal=" + data.signal : "") + "）");
-              } else if (data.type === "error") {
-                appendLog("任务异常：" + (data.message || "未知错误"));
-              } else {
-                appendLog("[job] " + JSON.stringify(data));
-              }
-
-              if (data.type === "finished") {
-                setStatus(data.exitCode === 0 || data.exitCode === 4 ? "任务结束" : "任务失败");
-              }
-            });
-            events.onerror = function () {
-              setStatus("与后端连接中断，等待重连...");
-            };
-          } else {
-            appendLog("[warn] 浏览器不支持 EventSource，实时日志不可用");
+            setStatus("GUI 已初始化");
+          } catch (error) {
+            appendLogRef.current("[fatal] " + (error && error.message ? error.message : String(error)));
+            setStatus("初始化失败");
+            console.error(error);
           }
 
-          setStatus("GUI 已初始化");
-        } catch (error) {
-          appendLog("[fatal] " + (error && error.message ? error.message : String(error)));
-          setStatus("初始化失败");
-          console.error(error);
+          return function () {
+            if (events) {
+              events.close();
+            }
+          };
+        }, []);
+
+        async function handleLogin() {
+          try {
+            setStatus("保存登录中...");
+            var result = await post("/api/login", {
+              cookieText: cookieText,
+              cookieFilePath: cookieFilePath,
+              looseCookie: looseCookie
+            });
+            appendCommandResult("login", result);
+            setStatus(result.exitCode === 0 ? "登录已保存" : "登录失败");
+          } catch (error) {
+            appendLogRef.current("[login] " + (error && error.message ? error.message : String(error)));
+            setStatus("登录失败");
+          }
         }
+
+        async function handleWhoami() {
+          try {
+            var result = await post("/api/whoami", {});
+            appendCommandResult("whoami", result);
+          } catch (error) {
+            appendLogRef.current("[whoami] " + (error && error.message ? error.message : String(error)));
+          }
+        }
+
+        async function handleLogout() {
+          try {
+            var result = await post("/api/logout", {});
+            appendCommandResult("logout", result);
+          } catch (error) {
+            appendLogRef.current("[logout] " + (error && error.message ? error.message : String(error)));
+          }
+        }
+
+        async function handleStart() {
+          try {
+            var payload = {
+              users: users,
+              outDir: outDir,
+              engine: engine,
+              kinds: kinds,
+              maxTweets: toOptionalNumber(maxTweets),
+              concurrency: toOptionalNumber(concurrency),
+              retry: toOptionalNumber(retry),
+              userRetry: toOptionalNumber(userRetry),
+              userDelayMs: toOptionalNumber(userDelayMs),
+              requestDelayMs: toOptionalNumber(requestDelayMs)
+            };
+
+            var result = await post("/api/download", payload);
+            appendLogRef.current("[download] started pid=" + result.pid);
+            setStatus("下载进行中");
+          } catch (error) {
+            appendLogRef.current("[download] " + (error && error.message ? error.message : String(error)));
+            setStatus("下载未启动");
+          }
+        }
+
+        async function handleStop() {
+          try {
+            var result = await post("/api/stop", {});
+            appendLogRef.current("[stop] " + result.message);
+          } catch (error) {
+            appendLogRef.current("[stop] " + (error && error.message ? error.message : String(error)));
+          }
+        }
+
+        function handleClearLog() {
+          setLogText("");
+        }
+
+        return h(
+          "div",
+          { className: "wrap" },
+          h("h1", null, "TWMD Web GUI"),
+          h("p", { className: "desc" }, "先登录 cookie，再填写用户并开始下载。"),
+          h(
+            "section",
+            { className: "card" },
+            h("h2", null, "1) 登录"),
+            h(
+              "div",
+              { className: "row" },
+              h("label", { htmlFor: "cookieText" }, "Cookie 文本（推荐）"),
+              h("textarea", {
+                id: "cookieText",
+                placeholder: "粘贴 cookie 文本",
+                value: cookieText,
+                onChange: function (event) {
+                  setCookieText(event.target.value);
+                }
+              })
+            ),
+            h(
+              "div",
+              { className: "row" },
+              h("label", { htmlFor: "cookieFilePath" }, "或 Cookie 文件路径"),
+              h("input", {
+                id: "cookieFilePath",
+                type: "text",
+                placeholder: "例如 /Users/you/cookies.txt",
+                value: cookieFilePath,
+                onChange: function (event) {
+                  setCookieFilePath(event.target.value);
+                }
+              })
+            ),
+            h(
+              "div",
+              { className: "row" },
+              h(
+                "label",
+                null,
+                h("input", {
+                  id: "looseCookie",
+                  type: "checkbox",
+                  checked: looseCookie,
+                  style: {
+                    width: "auto",
+                    marginRight: "6px"
+                  },
+                  onChange: function (event) {
+                    setLooseCookie(event.target.checked);
+                  }
+                }),
+                "关闭严格校验"
+              )
+            ),
+            h(
+              "div",
+              { className: "actions" },
+              h(
+                "button",
+                {
+                  className: "primary",
+                  id: "btnLogin",
+                  onClick: function () {
+                    void handleLogin();
+                  }
+                },
+                "保存登录"
+              ),
+              h(
+                "button",
+                {
+                  id: "btnWhoami",
+                  onClick: function () {
+                    void handleWhoami();
+                  }
+                },
+                "检查登录"
+              ),
+              h(
+                "button",
+                {
+                  id: "btnLogout",
+                  onClick: function () {
+                    void handleLogout();
+                  }
+                },
+                "退出登录"
+              )
+            )
+          ),
+          h(
+            "section",
+            { className: "card" },
+            h("h2", null, "2) 下载"),
+            h(
+              "div",
+              { className: "row" },
+              h("label", { htmlFor: "users" }, "用户（逗号/空格/换行）"),
+              h("textarea", {
+                id: "users",
+                placeholder: "nasa",
+                value: users,
+                onChange: function (event) {
+                  setUsers(event.target.value);
+                }
+              })
+            ),
+            h(
+              "div",
+              { className: "grid2" },
+              h(
+                "div",
+                { className: "row" },
+                h("label", { htmlFor: "outDir" }, "输出目录"),
+                h("input", {
+                  id: "outDir",
+                  type: "text",
+                  value: outDir,
+                  onChange: function (event) {
+                    setOutDir(event.target.value);
+                  }
+                })
+              ),
+              h(
+                "div",
+                { className: "row" },
+                h("label", { htmlFor: "kinds" }, "媒体类型"),
+                h("input", {
+                  id: "kinds",
+                  type: "text",
+                  value: kinds,
+                  onChange: function (event) {
+                    setKinds(event.target.value);
+                  }
+                })
+              )
+            ),
+            h(
+              "details",
+              null,
+              h("summary", null, "高级参数（可选）"),
+              h(
+                "div",
+                { className: "grid2" },
+                h(
+                  "div",
+                  { className: "row" },
+                  h("label", { htmlFor: "engine" }, "抓取引擎"),
+                  h(
+                    "select",
+                    {
+                      id: "engine",
+                      value: engine,
+                      onChange: function (event) {
+                        setEngine(event.target.value);
+                      }
+                    },
+                    h("option", { value: "graphql" }, "graphql（API 抓取）"),
+                    h("option", { value: "playwright" }, "playwright（仅页面抓取）")
+                  )
+                ),
+                h(
+                  "div",
+                  { className: "row" },
+                  h("label", { htmlFor: "maxTweets" }, "最大推文数"),
+                  h("input", {
+                    id: "maxTweets",
+                    type: "number",
+                    min: "1",
+                    placeholder: "50",
+                    value: maxTweets,
+                    onChange: function (event) {
+                      setMaxTweets(event.target.value);
+                    }
+                  })
+                ),
+                h(
+                  "div",
+                  { className: "row" },
+                  h("label", { htmlFor: "concurrency" }, "并发"),
+                  h("input", {
+                    id: "concurrency",
+                    type: "number",
+                    min: "1",
+                    value: concurrency,
+                    onChange: function (event) {
+                      setConcurrency(event.target.value);
+                    }
+                  })
+                ),
+                h(
+                  "div",
+                  { className: "row" },
+                  h("label", { htmlFor: "retry" }, "媒体重试"),
+                  h("input", {
+                    id: "retry",
+                    type: "number",
+                    min: "0",
+                    value: retry,
+                    onChange: function (event) {
+                      setRetry(event.target.value);
+                    }
+                  })
+                ),
+                h(
+                  "div",
+                  { className: "row" },
+                  h("label", { htmlFor: "userRetry" }, "用户重试"),
+                  h("input", {
+                    id: "userRetry",
+                    type: "number",
+                    min: "0",
+                    value: userRetry,
+                    onChange: function (event) {
+                      setUserRetry(event.target.value);
+                    }
+                  })
+                ),
+                h(
+                  "div",
+                  { className: "row" },
+                  h("label", { htmlFor: "userDelayMs" }, "用户间隔(ms)"),
+                  h("input", {
+                    id: "userDelayMs",
+                    type: "number",
+                    min: "0",
+                    value: userDelayMs,
+                    onChange: function (event) {
+                      setUserDelayMs(event.target.value);
+                    }
+                  })
+                ),
+                h(
+                  "div",
+                  { className: "row" },
+                  h("label", { htmlFor: "requestDelayMs" }, "请求间隔(ms)"),
+                  h("input", {
+                    id: "requestDelayMs",
+                    type: "number",
+                    min: "0",
+                    value: requestDelayMs,
+                    onChange: function (event) {
+                      setRequestDelayMs(event.target.value);
+                    }
+                  })
+                )
+              )
+            ),
+            h(
+              "div",
+              {
+                className: "actions",
+                style: {
+                  marginTop: "10px"
+                }
+              },
+              h(
+                "button",
+                {
+                  className: "primary",
+                  id: "btnStart",
+                  onClick: function () {
+                    void handleStart();
+                  }
+                },
+                "开始下载"
+              ),
+              h(
+                "button",
+                {
+                  className: "warn",
+                  id: "btnStop",
+                  onClick: function () {
+                    void handleStop();
+                  }
+                },
+                "停止任务"
+              )
+            )
+          ),
+          h(
+            "section",
+            { className: "log" },
+            h(
+              "div",
+              { className: "log-head" },
+              h("strong", null, "实时日志"),
+              h(
+                "button",
+                {
+                  id: "btnClear",
+                  onClick: handleClearLog
+                },
+                "清空"
+              )
+            ),
+            h("pre", { id: "log", ref: logRef }, logText),
+            h("p", { className: "status", id: "status" }, "状态：" + status)
+          )
+        );
       }
 
-      window.addEventListener("error", function (event) {
-        var logEl = document.getElementById("log");
-        if (logEl) {
-          logEl.textContent += "[window-error] " + event.message + "\\n";
-        }
-      });
+      var rootElement = document.getElementById("root");
+      if (!rootElement) {
+        console.error("[twmd-gui] missing #root element");
+        return;
+      }
 
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", init);
+      if (typeof ReactDOMRef.createRoot === "function") {
+        ReactDOMRef.createRoot(rootElement).render(h(App));
       } else {
-        init();
+        ReactDOMRef.render(h(App), rootElement);
       }
     })();
   </script>
