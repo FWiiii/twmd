@@ -17,10 +17,10 @@ importers:
 
   apps/cli:
     dependencies:
-      '@twmd/core':
+      '@huangjz11/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@twmd/shared':
+      '@huangjz11/shared':
         specifier: workspace:*
         version: link:../../packages/shared
 
@@ -28,7 +28,7 @@ importers:
 
   packages/core:
     dependencies:
-      '@twmd/shared':
+      '@huangjz11/shared':
         specifier: workspace:*
         version: link:../shared
       playwright:

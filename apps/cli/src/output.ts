@@ -1,4 +1,4 @@
-import type { FailureDetail, JobEvent, JobResult } from "@twmd/shared";
+import type { FailureDetail, JobEvent, JobResult } from "@huangjz11/shared";
 import { createJsonReport } from "./reporting.js";
 
 export type OutputFormat = "text" | "json";

@@ -1,4 +1,10 @@
-import type { BatchJobInput, FailureDetail, JobEvent, JobResult, SessionData } from "@twmd/shared";
+import type {
+  BatchJobInput,
+  FailureDetail,
+  JobEvent,
+  JobResult,
+  SessionData
+} from "@huangjz11/shared";
 import type { SessionStore } from "../auth/session-store.js";
 import { downloadMediaBatch } from "../downloader/media-downloader.js";
 import { createMediaScraper, type MediaScraper } from "../scraper/media-scraper.js";

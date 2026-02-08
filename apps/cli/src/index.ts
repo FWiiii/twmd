@@ -10,8 +10,8 @@ import {
   runBatchJob,
   summarizeJobResult,
   whoami
-} from "@twmd/core";
-import type { FailureDetail, JobResult, MediaKind, ScraperEngine } from "@twmd/shared";
+} from "@huangjz11/core";
+import type { FailureDetail, JobResult, MediaKind, ScraperEngine } from "@huangjz11/shared";
 import { CliError, EXIT_CODES, toCliError } from "./error-codes.js";
 import {
   createOutputOptions,

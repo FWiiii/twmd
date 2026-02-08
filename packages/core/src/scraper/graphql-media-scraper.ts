@@ -1,4 +1,4 @@
-import type { MediaItem, MediaKind, SessionData } from "@twmd/shared";
+import type { MediaItem, MediaKind, SessionData } from "@huangjz11/shared";
 import type { FetchUserMediaInput, MediaScraper } from "./media-scraper.js";
 
 interface GraphqlAuthCandidate {

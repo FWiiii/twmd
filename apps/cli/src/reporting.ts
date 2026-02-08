@@ -1,4 +1,4 @@
-import type { FailureDetail, JobResult } from "@twmd/shared";
+import type { FailureDetail, JobResult } from "@huangjz11/shared";
 
 export interface DownloadReportSummary {
   totalUsers: number;

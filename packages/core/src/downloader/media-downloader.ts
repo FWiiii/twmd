@@ -1,7 +1,7 @@
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { FailureDetail, MediaItem } from "@twmd/shared";
+import type { FailureDetail, MediaItem } from "@huangjz11/shared";
 import { buildMediaFilename, sanitizePathPart } from "../utils/path.js";
 import { nowIso, sleep } from "../utils/time.js";
 

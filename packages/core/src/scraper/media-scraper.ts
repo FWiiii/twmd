@@ -1,5 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import type { MediaItem, MediaKind, ScraperEngine, SessionData } from "@twmd/shared";
+import type { MediaItem, MediaKind, ScraperEngine, SessionData } from "@huangjz11/shared";
 import { normalizeCookiesForTwitterRequests } from "../auth/session-store.js";
 import { GraphqlMediaScraper } from "./graphql-media-scraper.js";
 

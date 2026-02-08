@@ -2,7 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { SessionData } from "@twmd/shared";
+import type { SessionData } from "@huangjz11/shared";
 import { nowIso } from "../utils/time.js";
 
 export interface SessionStoreOptions {

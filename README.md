@@ -176,15 +176,15 @@ node apps/cli/dist/index.js logout
 
 ```bash
 pnpm -r build
-pnpm --filter @twmd/shared publish --access public
-pnpm --filter @twmd/core publish --access public
-pnpm --filter @twmd/cli publish --access public
+pnpm --filter @huangjz11/shared publish --access public
+pnpm --filter @huangjz11/core publish --access public
+pnpm --filter @huangjz11/cli publish --access public
 ```
 
 用户全局安装后可直接执行：
 
 ```bash
-npm i -g @twmd/cli
+npm i -g @huangjz11/cli
 twmd --gui
 ```
 

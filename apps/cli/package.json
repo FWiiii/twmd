@@ -1,6 +1,6 @@
 {
-  "name": "@twmd/cli",
-  "version": "0.1.0",
+  "name": "@huangjz11/cli",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -20,7 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@twmd/core": "0.1.0",
-    "@twmd/shared": "0.1.0"
+    "@huangjz11/core": "workspace:*",
+    "@huangjz11/shared": "workspace:*"
   }
 }

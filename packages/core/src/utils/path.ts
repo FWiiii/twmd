@@ -1,5 +1,5 @@
 import { extname } from "node:path";
-import type { MediaItem } from "@twmd/shared";
+import type { MediaItem } from "@huangjz11/shared";
 
 const WINDOWS_FORBIDDEN = /[<>:"/\\|?*\u0000-\u001F]/g;
 
