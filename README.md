@@ -30,6 +30,16 @@ pnpm install
 pnpm build
 ```
 
+也支持“命令参数”形式（与子命令等价）：
+
+```bash
+twmd --gui
+twmd --download --users nasa --out ./downloads
+twmd --login --cookie-file ./cookies.txt
+twmd --whoami
+twmd --logout
+```
+
 ## Web GUI（M3 最小版）
 
 通过 CLI 启动本地 Web GUI（默认自动打开浏览器）：
@@ -159,6 +169,24 @@ node apps/cli/dist/index.js logout
 - `3`：认证/会话错误（`TWMD_E_AUTH`）
 - `4`：部分成功（任务完成但有失败项）
 - `5`：内部/运行时错误（`TWMD_E_INTERNAL`）
+
+## 发布为可安装 CLI
+
+按依赖顺序发布三个包：
+
+```bash
+pnpm -r build
+pnpm --filter @twmd/shared publish --access public
+pnpm --filter @twmd/core publish --access public
+pnpm --filter @twmd/cli publish --access public
+```
+
+用户全局安装后可直接执行：
+
+```bash
+npm i -g @twmd/cli
+twmd --gui
+```
 
 ## 计划文档
 

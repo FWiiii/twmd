@@ -35,6 +35,8 @@ const DEFAULT_USER_RETRY_COUNT = 1;
 const DEFAULT_USER_DELAY_MS = 0;
 const DEFAULT_REQUEST_DELAY_MS = 0;
 
+type CliCommand = "help" | "login" | "whoami" | "logout" | "gui" | "download";
+
 function usageError(message: string): CliError {
   return new CliError("TWMD_E_USAGE", message);
 }
@@ -48,6 +50,13 @@ Usage:
   twmd gui [--host 127.0.0.1] [--port 4310] [--no-open]
   twmd download --users <u1,u2> --out <dir> [--engine graphql|playwright] [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
   twmd download --users-file <file> --out <dir> [--engine graphql|playwright] [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+
+Command Flags (equivalent):
+  twmd --login --cookie-file <path> [--loose-cookie]
+  twmd --whoami
+  twmd --logout
+  twmd --gui [--host 127.0.0.1] [--port 4310] [--no-open]
+  twmd --download --users <u1,u2> --out <dir> [...]
 
 Global Options:
   --quiet
@@ -440,16 +449,88 @@ function validateGlobalOutputFlags(args: string[]): void {
   }
 }
 
+function normalizeCommandToken(token: string): CliCommand | undefined {
+  if (token === "help" || token === "--help" || token === "-h") {
+    return "help";
+  }
+
+  if (token === "login" || token === "--login") {
+    return "login";
+  }
+
+  if (token === "whoami" || token === "--whoami") {
+    return "whoami";
+  }
+
+  if (token === "logout" || token === "--logout") {
+    return "logout";
+  }
+
+  if (token === "gui" || token === "--gui") {
+    return "gui";
+  }
+
+  if (token === "download" || token === "--download") {
+    return "download";
+  }
+
+  return undefined;
+}
+
+function resolveCommandAndArgs(argv: string[]): { command: CliCommand; args: string[] } {
+  if (argv.length === 0) {
+    return {
+      command: "help",
+      args: []
+    };
+  }
+
+  let foundCommand: CliCommand | undefined;
+  let foundIndex = -1;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const normalized = normalizeCommandToken(argv[index]);
+    if (!normalized) {
+      continue;
+    }
+
+    if (foundCommand !== undefined) {
+      throw usageError(`Multiple commands provided: ${foundCommand} and ${normalized}.`);
+    }
+
+    foundCommand = normalized;
+    foundIndex = index;
+  }
+
+  if (foundCommand !== undefined) {
+    return {
+      command: foundCommand,
+      args: argv.filter((_value, index) => index !== foundIndex)
+    };
+  }
+
+  const firstPositional = argv.find((item) => !item.startsWith("-"));
+  if (firstPositional) {
+    throw usageError(`Unknown command: ${firstPositional}`);
+  }
+
+  return {
+    command: "help",
+    args: argv
+  };
+}
+
 async function main(): Promise<void> {
   const store = createSessionStore({ appName: "tw-media-downloader" });
-  const [, , command = "help", ...rawArgs] = process.argv;
+  const argv = process.argv.slice(2);
+  const { command, args: rawArgs } = resolveCommandAndArgs(argv);
 
   try {
     validateGlobalOutputFlags(rawArgs);
     const output = createOutputOptions(rawArgs);
     const args = stripGlobalFlags(rawArgs);
 
-    if (command === "help" || command === "--help" || command === "-h") {
+    if (command === "help") {
       printHelp(store.path, output);
       return;
     }
