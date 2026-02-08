@@ -279,7 +279,23 @@ function buildGraphqlAuthBundle(session: SessionData): GraphqlAuthBundle {
     "*"
   ]);
 
+  const allAuthTokens = Array.from(
+    new Set([
+      ...Array.from(authByDomain.values()).flat(),
+      cookieMap.auth_token
+    ].filter((value): value is string => Boolean(value)))
+  );
+
+  const allCt0Tokens = Array.from(
+    new Set([
+      ...Array.from(ct0ByDomain.values()).flat(),
+      cookieMap.ct0
+    ].filter((value): value is string => Boolean(value)))
+  );
+
   const authCandidates: GraphqlAuthCandidate[] = [];
+
+  // Prefer domain-aligned pairs first.
   for (const domain of candidateDomains) {
     const auths = authByDomain.get(domain) ?? authByDomain.get("*") ?? [];
     const ct0s = ct0ByDomain.get(domain) ?? ct0ByDomain.get("*") ?? [];
@@ -296,6 +312,18 @@ function buildGraphqlAuthBundle(session: SessionData): GraphqlAuthBundle {
           guestToken
         });
       }
+    }
+  }
+
+  // Add global cross-domain pairs as fallback to avoid missing valid pairs
+  // when auth_token and ct0 are attached to different domains.
+  for (const authToken of allAuthTokens) {
+    for (const ct0 of allCt0Tokens) {
+      authCandidates.push({
+        authToken,
+        ct0,
+        guestToken
+      });
     }
   }
 
@@ -400,12 +428,28 @@ function mapMediaKind(media: GraphqlMediaItem, resolvedUrl: string): MediaKind |
 function extractBearerFromScript(scriptText: string): string[] {
   const tokens = new Set<string>();
 
-  const directBearerMatches = scriptText.match(/Bearer\s+(AAAAAAAAAAAAAAAAAAAAA[A-Za-z0-9%_-]{20,})/g) ?? [];
+  const normalizedScript = scriptText
+    .replace(/\\u002F/gi, "/")
+    .replace(/\\u003D/gi, "=")
+    .replace(/\\x2f/gi, "/")
+    .replace(/\\x3d/gi, "=");
+
+  const directBearerMatches =
+    normalizedScript.match(/Bearer\s+([A-Za-z0-9%_\-./+=]{20,})/g) ?? [];
   for (const item of directBearerMatches) {
     tokens.add(item.replace(/^Bearer\s+/, "").trim());
   }
 
-  const matches = scriptText.match(/AAAAAAAAAAAAAAAAAAAAA[A-Za-z0-9%_-]{20,}/g) ?? [];
+  const quotedBearerMatches =
+    normalizedScript.match(/(?:BEARER_TOKEN|bearerToken)\"?\s*[:=]\s*\"([A-Za-z0-9%_\-./+=]{20,})\"/g) ?? [];
+  for (const item of quotedBearerMatches) {
+    const match = item.match(/\"([A-Za-z0-9%_\-./+=]{20,})\"/);
+    if (match?.[1]) {
+      tokens.add(match[1]);
+    }
+  }
+
+  const matches = normalizedScript.match(/AAAAAAAAAAAAAAAAAAAAA[A-Za-z0-9%_\-./+=]{20,}/g) ?? [];
   for (const item of matches) {
     tokens.add(item.trim());
   }
@@ -718,6 +762,68 @@ class GraphqlApiClient {
     return headers;
   }
 
+  private getSetCookieHeaders(response: Response): string[] {
+    const extendedHeaders = response.headers as Headers & {
+      getSetCookie?: () => string[];
+    };
+
+    if (typeof extendedHeaders.getSetCookie === "function") {
+      return extendedHeaders.getSetCookie();
+    }
+
+    const single = response.headers.get("set-cookie");
+    if (!single) {
+      return [];
+    }
+
+    return [single];
+  }
+
+  private async refreshCsrfTokenFromCurrentAuth(): Promise<boolean> {
+    const auth = this.currentAuthCandidate();
+    if (!auth?.authToken) {
+      return false;
+    }
+
+    const cookieParts = [`auth_token=${auth.authToken}`];
+    if (this.cookieHeaderBase) {
+      cookieParts.push(this.cookieHeaderBase);
+    }
+
+    const homePages = ["https://x.com/", "https://twitter.com/"];
+
+    for (const homeUrl of homePages) {
+      try {
+        const response = await fetch(homeUrl, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            Cookie: cookieParts.join("; ")
+          }
+        });
+
+        const setCookies = this.getSetCookieHeaders(response);
+        for (const cookie of setCookies) {
+          const pair = parseCookieFirstPair(cookie);
+          if (pair?.name !== "ct0" || !pair.value) {
+            continue;
+          }
+
+          if (pair.value === auth.ct0) {
+            return false;
+          }
+
+          auth.ct0 = pair.value;
+          return true;
+        }
+      } catch {
+      }
+    }
+
+    return false;
+  }
+
   private async refreshWebMetadata(): Promise<boolean> {
     const homePages = ["https://x.com/", "https://twitter.com/"];
     const discoveredTokens: string[] = [];
@@ -827,6 +933,11 @@ class GraphqlApiClient {
 
       if (sawAuthFailure && this.rotateAuthCandidate()) {
         errors.push("auth cookie pair rotate succeeded, retrying request once.");
+        continue;
+      }
+
+      if (sawAuthFailure && (await this.refreshCsrfTokenFromCurrentAuth())) {
+        errors.push("csrf token refresh succeeded, retrying request once.");
         continue;
       }
 
