@@ -1,10 +1,12 @@
 export {
   createSessionStore,
+  loginInteractively,
   loginWithCookies,
   logout,
   parseCookies,
   validateRequiredCookies,
   whoami,
+  type InteractiveLoginInput,
   type LoginWithCookiesInput,
   type SessionStore,
   type SessionStoreOptions,

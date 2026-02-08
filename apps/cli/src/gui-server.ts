@@ -37,6 +37,11 @@ interface LoginRequest {
   looseCookie?: boolean;
 }
 
+interface InteractiveLoginRequest {
+  looseCookie?: boolean;
+  timeoutMs?: number;
+}
+
 const HTML_PAGE = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -363,6 +368,14 @@ const HTML_PAGE = `<!doctype html>
           return withTimePrefix("登录已保存（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
         }
 
+        if (message === "Interactive login started") {
+          return withTimePrefix("已打开浏览器，请完成 X/Twitter 登录", parsed.ts);
+        }
+
+        if (message === "Interactive login session saved") {
+          return withTimePrefix("交互式登录已保存（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
+        }
+
         if (message === "Logged in") {
           return withTimePrefix("当前已登录（cookie " + (parsed.cookieCount || 0) + "）", parsed.ts);
         }
@@ -590,6 +603,23 @@ const HTML_PAGE = `<!doctype html>
           }
         }
 
+        async function handleInteractiveLogin() {
+          try {
+            setStatus("打开浏览器登录中...");
+            var result = await post("/api/login-interactive", {
+              looseCookie: looseCookie,
+              timeoutMs: 180000
+            });
+            appendCommandResult("login-interactive", result);
+            setStatus(result.exitCode === 0 ? "交互式登录成功" : "交互式登录失败");
+          } catch (error) {
+            appendLogRef.current(
+              "[login-interactive] " + (error && error.message ? error.message : String(error))
+            );
+            setStatus("交互式登录失败");
+          }
+        }
+
         async function handleLogout() {
           try {
             var result = await post("/api/logout", {});
@@ -706,6 +736,16 @@ const HTML_PAGE = `<!doctype html>
                   }
                 },
                 "保存登录"
+              ),
+              h(
+                "button",
+                {
+                  id: "btnInteractiveLogin",
+                  onClick: function () {
+                    void handleInteractiveLogin();
+                  }
+                },
+                "浏览器登录"
               ),
               h(
                 "button",
@@ -1151,6 +1191,31 @@ export async function startGuiServer(input: StartGuiServerInput): Promise<GuiSer
           "--no-color"
         ]);
 
+        sendJson(res, 200, {
+          ...result,
+          ok: result.exitCode === 0
+        });
+        return;
+      }
+
+      if (method === "POST" && requestUrl.pathname === "/api/login-interactive") {
+        const payload = await readJsonBody<InteractiveLoginRequest>(req);
+        const args = [
+          "login-interactive",
+          "--output-format",
+          "json",
+          "--no-color"
+        ];
+
+        if (payload.looseCookie) {
+          args.push("--loose-cookie");
+        }
+
+        if (payload.timeoutMs !== undefined && payload.timeoutMs !== null && payload.timeoutMs !== 0) {
+          args.push("--timeout-ms", String(payload.timeoutMs));
+        }
+
+        const result = await runCliOnce(input.cliScriptPath, args);
         sendJson(res, 200, {
           ...result,
           ok: result.exitCode === 0

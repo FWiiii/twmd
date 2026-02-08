@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   createSessionStore,
   createMediaScraper,
+  loginInteractively,
   loginWithCookies,
   logout,
   runBatchJob,
@@ -35,7 +36,14 @@ const DEFAULT_USER_RETRY_COUNT = 1;
 const DEFAULT_USER_DELAY_MS = 0;
 const DEFAULT_REQUEST_DELAY_MS = 0;
 
-type CliCommand = "help" | "login" | "whoami" | "logout" | "gui" | "download";
+type CliCommand =
+  | "help"
+  | "login"
+  | "login-interactive"
+  | "whoami"
+  | "logout"
+  | "gui"
+  | "download";
 
 function usageError(message: string): CliError {
   return new CliError("TWMD_E_USAGE", message);
@@ -45,6 +53,7 @@ function getHelpText(sessionPath: string): string {
   return `
 Usage:
   twmd login --cookie-file <path> [--loose-cookie]
+  twmd login-interactive [--loose-cookie] [--timeout-ms <ms>]
   twmd whoami
   twmd logout
   twmd gui [--host 127.0.0.1] [--port 4310] [--no-open]
@@ -53,6 +62,7 @@ Usage:
 
 Command Flags (equivalent):
   twmd --login --cookie-file <path> [--loose-cookie]
+  twmd --login-interactive [--loose-cookie] [--timeout-ms <ms>]
   twmd --whoami
   twmd --logout
   twmd --gui [--host 127.0.0.1] [--port 4310] [--no-open]
@@ -274,6 +284,31 @@ async function runLogin(args: string[], output: OutputOptions): Promise<void> {
   });
 }
 
+async function runInteractiveLogin(args: string[], output: OutputOptions): Promise<void> {
+  const looseCookieMode = hasFlag(args, "--loose-cookie");
+  const timeoutMs = parsePositiveIntegerOption(args, "--timeout-ms");
+  const store = createSessionStore({ appName: "tw-media-downloader" });
+
+  logInfo(output, "Interactive login started", {
+    loginUrl: "https://x.com/i/flow/login",
+    strict: !looseCookieMode,
+    timeoutMs: timeoutMs ?? 180000
+  });
+
+  const session = await loginInteractively({
+    store,
+    strict: !looseCookieMode,
+    timeoutMs
+  });
+
+  logInfo(output, "Interactive login session saved", {
+    cookieCount: session.cookies.length,
+    updatedAt: session.updatedAt,
+    strict: !looseCookieMode,
+    sessionPath: store.path
+  });
+}
+
 async function runWhoami(output: OutputOptions): Promise<void> {
   const store = createSessionStore({ appName: "tw-media-downloader" });
   const session = await whoami(store);
@@ -458,6 +493,10 @@ function normalizeCommandToken(token: string): CliCommand | undefined {
     return "login";
   }
 
+  if (token === "login-interactive" || token === "--login-interactive") {
+    return "login-interactive";
+  }
+
   if (token === "whoami" || token === "--whoami") {
     return "whoami";
   }
@@ -537,6 +576,11 @@ async function main(): Promise<void> {
 
     if (command === "login") {
       await runLogin(args, output);
+      return;
+    }
+
+    if (command === "login-interactive") {
+      await runInteractiveLogin(args, output);
       return;
     }
 

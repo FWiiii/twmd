@@ -36,6 +36,7 @@ pnpm build
 twmd --gui
 twmd --download --users nasa --out ./downloads
 twmd --login --cookie-file ./cookies.txt
+twmd --login-interactive
 twmd --whoami
 twmd --logout
 ```
@@ -102,6 +103,22 @@ node apps/cli/dist/index.js whoami
 ```
 
 当会话不完整时会返回认证错误退出码。
+
+### 2.5) 交互式登录（自动获取 Cookie）
+
+无需手动粘贴 cookie，命令会打开浏览器（Playwright），你完成 X/Twitter 登录后自动保存会话：
+
+```bash
+node apps/cli/dist/index.js login-interactive
+```
+
+可选参数：
+- `--timeout-ms <ms>`：等待登录超时（默认 `180000`）
+- `--loose-cookie`：关闭严格 cookie 校验
+
+实现细节：
+- 优先调用本机 Chrome（持久化 profile），profile 默认在 `~/.tw-media-downloader/chrome-profile`
+- 若本机 Chrome 不可用，会自动回退到 Playwright Chromium
 
 ### 3) 下载指定用户媒体
 

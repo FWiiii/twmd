@@ -1,6 +1,6 @@
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { FailureDetail, MediaItem } from "@huangjz11/shared";
 import { buildMediaFilename, sanitizePathPart } from "../utils/path.js";
 import { nowIso, sleep } from "../utils/time.js";
@@ -26,6 +26,89 @@ interface DownloadAttemptError extends Error {
   code?: string;
   status?: number;
   attempts?: number;
+}
+
+interface DownloadedMediaCache {
+  version: number;
+  updatedAt: string;
+  mediaKeys: string[];
+}
+
+interface DownloadedMediaCacheState {
+  path: string;
+  mediaKeys: Set<string>;
+}
+
+const DOWNLOADED_MEDIA_CACHE_VERSION = 1;
+const DOWNLOADED_MEDIA_CACHE_FILE_NAME = "downloaded-media.json";
+
+function getDownloadedMediaCachePath(outputDir: string): string {
+  return join(outputDir, ".twmd-cache", DOWNLOADED_MEDIA_CACHE_FILE_NAME);
+}
+
+function normalizeMediaUrlForCacheKey(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+function buildDownloadedMediaKey(item: MediaItem): string {
+  return [
+    item.username.trim().toLowerCase(),
+    item.tweetId.trim(),
+    item.kind,
+    normalizeMediaUrlForCacheKey(item.url)
+  ].join("|");
+}
+
+async function loadDownloadedMediaCache(outputDir: string): Promise<DownloadedMediaCacheState> {
+  const path = getDownloadedMediaCachePath(outputDir);
+
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = JSON.parse(raw) as Partial<DownloadedMediaCache>;
+    if (
+      parsed.version !== DOWNLOADED_MEDIA_CACHE_VERSION ||
+      !Array.isArray(parsed.mediaKeys)
+    ) {
+      return {
+        path,
+        mediaKeys: new Set()
+      };
+    }
+
+    return {
+      path,
+      mediaKeys: new Set(
+        parsed.mediaKeys.filter((item): item is string => typeof item === "string" && item.length > 0)
+      )
+    };
+  } catch {
+    return {
+      path,
+      mediaKeys: new Set()
+    };
+  }
+}
+
+async function persistDownloadedMediaCache(state: DownloadedMediaCacheState): Promise<void> {
+  const directory = dirname(state.path);
+  const payload: DownloadedMediaCache = {
+    version: DOWNLOADED_MEDIA_CACHE_VERSION,
+    updatedAt: nowIso(),
+    mediaKeys: Array.from(state.mediaKeys)
+  };
+
+  try {
+    await mkdir(directory, { recursive: true });
+    const tempPath = `${state.path}.tmp`;
+    await writeFile(tempPath, JSON.stringify(payload, null, 2));
+    await rename(tempPath, state.path);
+  } catch {
+  }
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -134,11 +217,17 @@ async function processOne(
   outputDir: string,
   retryCount: number,
   username: string,
-  perRequestDelayMs: number
+  perRequestDelayMs: number,
+  downloadedMediaKeys: Set<string>
 ): Promise<{
   status: "downloaded" | "failed" | "skipped";
   failure?: FailureDetail;
 }> {
+  const mediaKey = buildDownloadedMediaKey(item);
+  if (downloadedMediaKeys.has(mediaKey)) {
+    return { status: "skipped" };
+  }
+
   const userDir = join(outputDir, sanitizePathPart(item.username));
   await mkdir(userDir, { recursive: true });
 
@@ -146,11 +235,13 @@ async function processOne(
   const filePath = join(userDir, fileName);
 
   if (await fileExists(filePath)) {
+    downloadedMediaKeys.add(mediaKey);
     return { status: "skipped" };
   }
 
   try {
     await downloadWithRetries(item, filePath, retryCount, perRequestDelayMs);
+    downloadedMediaKeys.add(mediaKey);
     return { status: "downloaded" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -180,7 +271,8 @@ async function runWorker(
   retryCount: number,
   result: DownloadMediaBatchResult,
   username: string,
-  perRequestDelayMs: number
+  perRequestDelayMs: number,
+  downloadedMediaKeys: Set<string>
 ): Promise<void> {
   while (queue.length > 0) {
     const item = queue.shift();
@@ -188,7 +280,14 @@ async function runWorker(
       return;
     }
 
-    const outcome = await processOne(item, outputDir, retryCount, username, perRequestDelayMs);
+    const outcome = await processOne(
+      item,
+      outputDir,
+      retryCount,
+      username,
+      perRequestDelayMs,
+      downloadedMediaKeys
+    );
 
     if (outcome.status === "downloaded") {
       result.downloaded += 1;
@@ -224,11 +323,26 @@ export async function downloadMediaBatch(
     return result;
   }
 
+  const downloadedMediaCache = await loadDownloadedMediaCache(input.outputDir);
+
   const workerCount = Math.min(concurrency, queue.length);
   const workers = Array.from({ length: workerCount }, () =>
-    runWorker(queue, input.outputDir, retryCount, result, username, perRequestDelayMs)
+    runWorker(
+      queue,
+      input.outputDir,
+      retryCount,
+      result,
+      username,
+      perRequestDelayMs,
+      downloadedMediaCache.mediaKeys
+    )
   );
 
-  await Promise.all(workers);
+  try {
+    await Promise.all(workers);
+  } finally {
+    await persistDownloadedMediaCache(downloadedMediaCache);
+  }
+
   return result;
 }

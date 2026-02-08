@@ -2,6 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { chromium, type Browser, type BrowserContext, type Cookie } from "playwright";
 import type { SessionData } from "@huangjz11/shared";
 import { nowIso } from "../utils/time.js";
 
@@ -25,6 +26,22 @@ export interface LoginWithCookiesInput {
   requiredCookieNames?: string[];
 }
 
+export interface InteractiveLoginInput {
+  store: SessionStore;
+  strict?: boolean;
+  requiredCookieNames?: string[];
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  loginUrl?: string;
+  userDataDir?: string;
+}
+
+interface InteractiveLoginBrowserHandle {
+  context: BrowserContext;
+  mode: "chrome-persistent" | "chromium";
+  close(): Promise<void>;
+}
+
 export interface WhoAmIResult {
   loggedIn: boolean;
   updatedAt?: string;
@@ -33,6 +50,10 @@ export interface WhoAmIResult {
 }
 
 const DEFAULT_REQUIRED_COOKIE_NAMES = ["auth_token", "ct0"];
+const DEFAULT_INTERACTIVE_LOGIN_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_INTERACTIVE_LOGIN_POLL_INTERVAL_MS = 1200;
+const DEFAULT_INTERACTIVE_LOGIN_URL = "https://x.com/i/flow/login";
+const DEFAULT_INTERACTIVE_LOGIN_PROFILE_DIR = "chrome-profile";
 
 function normalizeCookieDomainValue(rawDomain: string): string {
   const trimmed = rawDomain.trim();
@@ -55,6 +76,75 @@ function normalizeCookieDomainAttribute(cookie: string): string {
     const normalized = normalizeCookieDomainValue(domainPart);
     return `; Domain=${normalized}`;
   });
+}
+
+function isTwitterDomain(rawDomain: string): boolean {
+  const domain = rawDomain.trim().replace(/^\./, "").toLowerCase();
+  return (
+    domain === "x.com" ||
+    domain.endsWith(".x.com") ||
+    domain === "twitter.com" ||
+    domain.endsWith(".twitter.com")
+  );
+}
+
+function serializePlaywrightCookie(cookie: Cookie): string {
+  const domain = normalizeCookieDomainValue(cookie.domain || ".twitter.com");
+  const path = cookie.path || "/";
+  const securePart = cookie.secure ? "; Secure" : "";
+  const httpOnlyPart = cookie.httpOnly ? "; HttpOnly" : "";
+  return `${cookie.name}=${cookie.value}; Domain=${domain}; Path=${path}${securePart}${httpOnlyPart}`;
+}
+
+async function readTwitterCookiesFromContext(context: BrowserContext): Promise<string[]> {
+  const cookies = await context.cookies(["https://x.com", "https://twitter.com"]);
+  const normalized = cookies
+    .filter((cookie) => Boolean(cookie.name) && isTwitterDomain(cookie.domain ?? ""))
+    .map((cookie) => serializePlaywrightCookie(cookie));
+
+  return normalizeCookiesForTwitterRequests(normalized);
+}
+
+async function openInteractiveLoginBrowser(
+  input: InteractiveLoginInput
+): Promise<InteractiveLoginBrowserHandle> {
+  const baseDir = dirname(input.store.path);
+  const userDataDir =
+    input.userDataDir?.trim() || join(baseDir, DEFAULT_INTERACTIVE_LOGIN_PROFILE_DIR);
+
+  await mkdir(userDataDir, { recursive: true });
+
+  try {
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: "chrome",
+      headless: false,
+      viewport: { width: 1280, height: 900 }
+    });
+
+    return {
+      context,
+      mode: "chrome-persistent",
+      close: async () => {
+        await context.close();
+      }
+    };
+  } catch {
+    const browser: Browser = await chromium.launch({
+      headless: false
+    });
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 }
+    });
+
+    return {
+      context,
+      mode: "chromium",
+      close: async () => {
+        await context.close();
+        await browser.close();
+      }
+    };
+  }
 }
 
 export function normalizeCookiesForTwitterRequests(cookies: string[]): string[] {
@@ -242,6 +332,55 @@ export async function loginWithCookies(input: LoginWithCookiesInput): Promise<Se
 
   await input.store.save(session);
   return session;
+}
+
+export async function loginInteractively(input: InteractiveLoginInput): Promise<SessionData> {
+  const strict = input.strict ?? true;
+  const requiredCookieNames = input.requiredCookieNames ?? DEFAULT_REQUIRED_COOKIE_NAMES;
+  const timeoutMs = Math.max(15_000, input.timeoutMs ?? DEFAULT_INTERACTIVE_LOGIN_TIMEOUT_MS);
+  const pollIntervalMs = Math.max(
+    500,
+    Math.min(10_000, input.pollIntervalMs ?? DEFAULT_INTERACTIVE_LOGIN_POLL_INTERVAL_MS)
+  );
+  const loginUrl = (input.loginUrl ?? DEFAULT_INTERACTIVE_LOGIN_URL).trim() || DEFAULT_INTERACTIVE_LOGIN_URL;
+
+  const browserHandle = await openInteractiveLoginBrowser(input);
+  const context = browserHandle.context;
+
+  try {
+    const page = await context.newPage();
+    await page.goto(loginUrl, {
+      waitUntil: "domcontentloaded"
+    });
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const cookies = await readTwitterCookiesFromContext(context);
+      if (cookies.length > 0) {
+        const validation = validateRequiredCookies(cookies, requiredCookieNames);
+        if (!strict || validation.valid) {
+          const session: SessionData = {
+            cookies,
+            updatedAt: nowIso(),
+            valid: true
+          };
+
+          await input.store.save(session);
+          return session;
+        }
+      }
+
+      await page.waitForTimeout(pollIntervalMs);
+    }
+
+    throw new Error(
+      `Interactive login timed out after ${Math.floor(
+        timeoutMs / 1000
+      )}s. Required cookies not found: ${requiredCookieNames.join(", ")}.`
+    );
+  } finally {
+    await browserHandle.close();
+  }
 }
 
 export async function whoami(store: SessionStore): Promise<WhoAmIResult> {
