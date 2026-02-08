@@ -13,6 +13,7 @@ export {
 
 export {
   createMediaScraper,
+  type CreateMediaScraperInput,
   type FetchUserMediaInput,
   type MediaScraper
 } from "./scraper/media-scraper.js";

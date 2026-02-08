@@ -4,13 +4,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createSessionStore,
+  createMediaScraper,
   loginWithCookies,
   logout,
   runBatchJob,
   summarizeJobResult,
   whoami
 } from "@twmd/core";
-import type { FailureDetail, JobResult, MediaKind } from "@twmd/shared";
+import type { FailureDetail, JobResult, MediaKind, ScraperEngine } from "@twmd/shared";
 import { CliError, EXIT_CODES, toCliError } from "./error-codes.js";
 import {
   createOutputOptions,
@@ -45,8 +46,8 @@ Usage:
   twmd whoami
   twmd logout
   twmd gui [--host 127.0.0.1] [--port 4310] [--no-open]
-  twmd download --users <u1,u2> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
-  twmd download --users-file <file> --out <dir> [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+  twmd download --users <u1,u2> --out <dir> [--engine graphql|playwright] [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
+  twmd download --users-file <file> --out <dir> [--engine graphql|playwright] [--kinds image,video,gif] [--max-tweets N] [--concurrency N] [--retry N] [--user-retry N] [--user-delay-ms N] [--request-delay-ms N] [--json-report <file>] [--csv-report <file>] [--failures-report <file>]
 
 Global Options:
   --quiet
@@ -150,6 +151,15 @@ function parseKinds(args: string[]): MediaKind[] {
   }
 
   return items as MediaKind[];
+}
+
+function parseEngine(args: string[]): ScraperEngine {
+  const raw = (getOptionValue(args, "--engine") ?? "graphql").trim().toLowerCase();
+  if (raw === "graphql" || raw === "playwright") {
+    return raw;
+  }
+
+  throw usageError(`Invalid --engine value: ${raw}. Expected graphql or playwright.`);
 }
 
 async function parseUsers(args: string[]): Promise<string[]> {
@@ -350,6 +360,8 @@ async function runDownload(args: string[], output: OutputOptions): Promise<JobRe
 
   const users = await parseUsers(args);
   const mediaKinds = parseKinds(args);
+  const engine = parseEngine(args);
+
   const maxTweetsPerUser = parsePositiveIntegerOption(args, "--max-tweets");
   const concurrency = parsePositiveIntegerOption(args, "--concurrency") ?? DEFAULT_CONCURRENCY;
   const retryCount = parseNonNegativeIntegerOption(args, "--retry") ?? DEFAULT_RETRY_COUNT;
@@ -361,10 +373,16 @@ async function runDownload(args: string[], output: OutputOptions): Promise<JobRe
     parseNonNegativeIntegerOption(args, "--request-delay-ms") ?? DEFAULT_REQUEST_DELAY_MS;
 
   const store = createSessionStore({ appName: "tw-media-downloader" });
+  const scraper = createMediaScraper({
+    engine
+  });
+
   const job = runBatchJob({
     store,
+    scraper,
     users,
     outputDir,
+    engine,
     mediaKinds,
     maxTweetsPerUser,
     concurrency,
@@ -376,7 +394,8 @@ async function runDownload(args: string[], output: OutputOptions): Promise<JobRe
 
   logInfo(output, "Download job started", {
     users: users.length,
-    outputDir
+    outputDir,
+    engine
   });
 
   let result: JobResult | undefined;

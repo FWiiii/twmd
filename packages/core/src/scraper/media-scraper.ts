@@ -1,6 +1,7 @@
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-import type { MediaItem, MediaKind, SessionData } from "@twmd/shared";
+import type { MediaItem, MediaKind, ScraperEngine, SessionData } from "@twmd/shared";
 import { normalizeCookiesForTwitterRequests } from "../auth/session-store.js";
+import { GraphqlMediaScraper } from "./graphql-media-scraper.js";
 
 export interface FetchUserMediaInput {
   username: string;
@@ -12,6 +13,10 @@ export interface MediaScraper {
   initialize(session: SessionData): Promise<void>;
   fetchUserMedia(input: FetchUserMediaInput): Promise<MediaItem[]>;
   close?(): Promise<void>;
+}
+
+export interface CreateMediaScraperInput {
+  engine?: ScraperEngine;
 }
 
 interface DomMediaCandidate {
@@ -428,6 +433,12 @@ class PlaywrightMediaScraper implements MediaScraper {
   }
 }
 
-export function createMediaScraper(): MediaScraper {
+export function createMediaScraper(input: CreateMediaScraperInput = {}): MediaScraper {
+  const engine = input.engine ?? "graphql";
+
+  if (engine === "graphql") {
+    return new GraphqlMediaScraper();
+  }
+
   return new PlaywrightMediaScraper();
 }

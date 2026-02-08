@@ -21,6 +21,7 @@ export interface GuiServerHandle {
 interface DownloadRequest {
   users: string;
   outDir: string;
+  engine?: "playwright" | "graphql" | string;
   kinds?: string;
   maxTweets?: number;
   concurrency?: number;
@@ -100,6 +101,7 @@ const HTML_PAGE = `<!doctype html>
     }
 
     input,
+    select,
     textarea,
     button {
       box-sizing: border-box;
@@ -250,6 +252,13 @@ const HTML_PAGE = `<!doctype html>
       <details>
         <summary>高级参数（可选）</summary>
         <div class="grid2">
+          <div class="row">
+            <label for="engine">抓取引擎</label>
+            <select id="engine">
+              <option value="graphql" selected>graphql（API 抓取）</option>
+              <option value="playwright">playwright（仅页面抓取）</option>
+            </select>
+          </div>
           <div class="row">
             <label for="maxTweets">最大推文数</label>
             <input id="maxTweets" type="number" min="1" placeholder="50" />
@@ -564,6 +573,7 @@ const HTML_PAGE = `<!doctype html>
               var payload = {
                 users: must("users").value,
                 outDir: must("outDir").value,
+                engine: must("engine").value,
                 kinds: must("kinds").value,
                 maxTweets: must("maxTweets").value ? Number(must("maxTweets").value) : undefined,
                 concurrency: must("concurrency").value ? Number(must("concurrency").value) : undefined,
@@ -910,6 +920,11 @@ export async function startGuiServer(input: StartGuiServerInput): Promise<GuiSer
           "json",
           "--no-color"
         ];
+
+        const engine = payload.engine?.trim();
+        if (engine) {
+          args.push("--engine", engine);
+        }
 
         const kinds = payload.kinds?.trim();
         if (kinds) {

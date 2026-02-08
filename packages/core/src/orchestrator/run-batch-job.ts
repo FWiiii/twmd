@@ -39,7 +39,11 @@ export async function *runBatchJob(
 ): AsyncGenerator<JobEvent, JobResult, void> {
   const session = await input.store.load();
   const activeSession = session && session.cookies.length > 0 ? session : buildAnonymousSession();
-  const scraper = input.scraper ?? createMediaScraper();
+  const scraper =
+    input.scraper ??
+    createMediaScraper({
+      engine: input.engine
+    });
   await scraper.initialize(activeSession);
 
   try {

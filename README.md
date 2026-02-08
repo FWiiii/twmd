@@ -9,11 +9,12 @@ Twitter/X 媒体批量下载器项目（TypeScript Monorepo）。
 - `packages/core`：抓取与下载核心能力（可复用）
 - `packages/shared`：共享类型与模型
 
-## 当前状态（M2.2 Playwright）
+## 当前状态（M2.3 GraphQL + Playwright）
 
 - ✅ 本地会话保存（cookie）
 - ✅ 严格 cookie 校验（默认要求 `auth_token` + `ct0`）
 - ✅ 用户级抓取编排（按用户名批量）
+- ✅ 双引擎抓取（`graphql` / `playwright`）
 - ✅ 媒体下载器（并发、重试、跳过已存在）
 - ✅ 失败明细报告（user/media 级别）
 - ✅ 用户级重试与限速参数
@@ -56,11 +57,11 @@ node apps/cli/dist/index.js gui --host 127.0.0.1 --port 4310
 
 GUI 页面支持：
 - 粘贴 Cookie 文本或填写 Cookie 文件路径并保存登录
-- 配置 users/outDir/kinds/并发/重试参数
+- 配置 users/outDir/engine/token/kinds/并发/重试参数
 - 启动与停止下载任务
-- 实时查看 JSON 日志输出
+- 实时查看关键进度日志
 
-### Playwright 运行准备（M2.2）
+### Playwright 运行准备（M2.3 回退/指定时）
 
 首次使用前，安装浏览器：
 
@@ -94,12 +95,20 @@ node apps/cli/dist/index.js whoami
 
 ### 3) 下载指定用户媒体
 
-#### Playwright（默认引擎）
+可选抓取引擎：
+- `--engine graphql`：默认，走 GraphQL API 抓取（含 v1.1 fallback）
+- `--engine playwright`：仅走页面抓取
+
+可选环境变量：
+- `TWMD_WEB_BEARER_TOKEN`：覆盖内置 web bearer（当 X 侧策略变更导致 GraphQL 403 时可用于兼容）
+
+#### graphql（默认）
 
 ```bash
 node apps/cli/dist/index.js download \
   --users nasa \
   --out ./downloads \
+  --engine graphql \
   --kinds image,video,gif \
   --max-tweets 50 \
   --concurrency 2 \
@@ -114,6 +123,7 @@ node apps/cli/dist/index.js download \
 
 参数说明：
 - 默认仅下载用户本人原创媒体（排除转推/转发内容）
+- graphql 引擎通过时间线接口 `exclude=retweets,replies` 过滤非原创内容
 - `--retry`：单个媒体下载失败后的重试次数（可为 0）
 - `--user-retry`：单个用户任务失败后的重试次数（可为 0）
 - `--user-delay-ms`：每个用户任务之间的固定延迟
